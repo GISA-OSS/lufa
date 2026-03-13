@@ -1,0 +1,92 @@
+name: Pull CI
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: Run lint and tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services: # database setup for integration and e2e tests
+      postgres:
+        image: docker.io/postgres:15
+        env:
+          POSTGRES_DB: test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: secret
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Ruff lint
+        run: ruff check
+
+      - name: Ruff format check
+        run: ruff format --check
+
+      - name: Mypy type tests
+        run: mypy --ignore-missing-imports --explicit-package-bases .
+
+      - name: Run unit tests
+        run: |
+          cd tests/unit; PYTHONPATH=../..: pytest --cov=lufa -v
+
+      - name: Run integration tests
+        run: |
+          cd tests/integration; PYTHONPATH=../..: pytest --cov=lufa -v
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_DB: test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: secret
+
+      - name: Run e2e tests
+        run: |
+          cd tests/e2e; PYTHONPATH=../..: pytest --cov=lufa -v
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_DB: test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: secret
+
+  docker_dry_run:
+    name: Docker build (dry run)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Build without push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: false

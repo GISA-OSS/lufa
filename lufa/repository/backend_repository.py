@@ -533,7 +533,9 @@ class SqliteBackendRepository(BackendRepository):
             (tower_job_template_id,),
         )
         fetched = cursor.fetchone()
-        fetched["template_infos"] = json.loads(fetched["template_infos"])
+        # template_infos can be None
+        if fetched["template_infos"]:
+            fetched["template_infos"] = json.loads(fetched["template_infos"])
 
         return fetched
 

@@ -7,6 +7,7 @@ from typing import Optional, TypeAlias, TypedDict
 from psycopg2.errors import ForeignKeyViolation, InvalidDatetimeFormat, InvalidTextRepresentation
 
 from lufa.database import DatabaseManager, JobState, JSon, TimeStamp
+from lufa.repository.backend_repository import ResourceNotFoundError
 
 logger = logging.getLogger(__name__)
 
@@ -132,6 +133,18 @@ class ApiRepository(ABC):
 
     @abstractmethod
     def add_stats(self, tower_job_id: int, stats: list[TowerJobStats]) -> None:
+        pass
+
+    @abstractmethod
+    def export_job(self, tower_job_id: int) -> dict:
+        """Exports complete job data with tasks and callbacks"""
+        pass
+
+    @abstractmethod
+    def import_job(self, job_data: dict) -> int:
+        """Imports a job from a dict
+        Returns the tower_job_id of the imported job.
+        """
         pass
 
 
@@ -378,6 +391,319 @@ class SqliteApiRepository(ApiRepository):
         )
 
         conn.commit()
+
+    def export_job(self, tower_job_id: int) -> dict:
+        """Exports complete job data with tasks and callbacks"""
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+
+        # get job data with template info
+        cursor.execute(
+            """
+            SELECT v_job_status.*,
+                   job_templates.tower_job_template_name,
+                   job_templates.playbook_path,
+                   job_templates.compliance_interval,
+                   job_templates.awx_organisation,
+                   job_templates.template_infos,
+                   strftime('%Y-%m-%dT%H:%M:%f', v_job_status.start_time) as start_time,
+                   strftime('%Y-%m-%dT%H:%M:%f', v_job_status.end_time)   as end_time
+            FROM v_job_status
+                     JOIN job_templates
+                          ON v_job_status.tower_job_template_id = job_templates.tower_job_template_id
+            WHERE v_job_status.tower_job_id = ?
+            """,
+            (tower_job_id,),
+        )
+
+        job = cursor.fetchone()
+        if not job:
+            raise ResourceNotFoundError(f"Job with id {tower_job_id} not found")
+
+        awx_tags = job["awx_tags"].split(",") if job["awx_tags"] else []
+        template_infos = json.loads(job["template_infos"]) if job["template_infos"] else None
+
+        # get stats
+        cursor.execute(
+            """
+            SELECT ansible_host,
+                   ok,
+                   failed,
+                   unreachable,
+                   changed,
+                   skipped,
+                   rescued,
+                   ignored
+            FROM stats
+            WHERE tower_job_id = ?
+            ORDER BY ansible_host
+            """,
+            (tower_job_id,),
+        )
+        stats = cursor.fetchall()
+
+        # get tasks with their callbacks
+        # SQLite doesn't have json_agg, so we need to fetch and group manually
+        cursor.execute(
+            """
+            SELECT tasks.ansible_uuid,
+                   tasks.task_name,
+                   task_callbacks.ansible_host,
+                   task_callbacks.state,
+                   task_callbacks.module,
+                   strftime('%Y-%m-%dT%H:%M:%f', task_callbacks.timestamp) as timestamp,
+                   task_callbacks.result_dump
+            FROM tasks
+                     LEFT JOIN task_callbacks
+                               ON tasks.ansible_uuid = task_callbacks.task_ansible_uuid
+            WHERE tasks.tower_job_id = ?
+            ORDER BY tasks.task_name, task_callbacks.timestamp
+            """,
+            (tower_job_id,),
+        )
+
+        # group callbacks by task
+        tasks_dict = {}
+        for row in cursor.fetchall():
+            task_uuid = row["ansible_uuid"]
+
+            if task_uuid not in tasks_dict:
+                tasks_dict[task_uuid] = {
+                    "ansible_uuid": task_uuid,
+                    "task_name": row["task_name"],
+                    "callbacks": [],
+                }
+
+            # Only add callback if there is one (LEFT JOIN might return NULL)
+            if row["ansible_host"] is not None:
+                tasks_dict[task_uuid]["callbacks"].append(
+                    {
+                        "ansible_host": row["ansible_host"],
+                        "state": row["state"],
+                        "module": row["module"],
+                        "timestamp": row["timestamp"],
+                        "result_dump": row["result_dump"],
+                    }
+                )
+
+        tasks_with_callbacks = list(tasks_dict.values())
+
+        # build export structure
+        export_data = {
+            "exported_at": self.db_manager.get_db_now(),
+            "job": {
+                "tower_job_id": job["tower_job_id"],
+                "tower_job_template_id": job["tower_job_template_id"],
+                "tower_job_template_name": job["tower_job_template_name"],
+                "ansible_limit": job["ansible_limit"],
+                "tower_user_name": job["tower_user_name"],
+                "awx_tags": awx_tags,
+                "extra_vars": job["extra_vars"],
+                "artifacts": job["artifacts"],
+                "tower_schedule_id": job["tower_schedule_id"],
+                "tower_schedule_name": job["tower_schedule_name"],
+                "tower_workflow_job_id": job["tower_workflow_job_id"],
+                "tower_workflow_job_name": job["tower_workflow_job_name"],
+                "start_time": job["start_time"],
+                "end_time": job["end_time"],
+                "state": job["state"],
+            },
+            "job_template": {
+                "tower_job_template_id": job["tower_job_template_id"],
+                "tower_job_template_name": job["tower_job_template_name"],
+                "playbook_path": job["playbook_path"],
+                "compliance_interval": job["compliance_interval"],
+                "awx_organisation": job["awx_organisation"],
+                "template_infos": template_infos,
+            },
+            "stats": stats,
+            "tasks": tasks_with_callbacks,
+        }
+
+        return export_data
+
+    def import_job(self, export_data: dict) -> int:
+        """
+        Imports a job from export data.
+
+        Returns the tower_job_id of the imported job.
+        Raises ValueError if export_data is invalid or job already exists.
+        """
+        conn: sqlite3.Connection = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+
+        job_data = export_data.get("job")
+        template_data = export_data.get("job_template")
+        stats_data = export_data.get("stats", [])
+        tasks_data = export_data.get("tasks", [])
+
+        if not job_data or not template_data:
+            raise ValueError("Invalid export data: missing job or job_template")
+
+        tower_job_id = job_data["tower_job_id"]
+
+        # check if job already exists
+        if self.job_exists(tower_job_id):
+            raise ValueError(f"Job with id {tower_job_id} already exists")
+
+        try:
+            # insert/update job_template
+            template_infos_value = template_data.get("template_infos", {})
+            if template_infos_value is not None:
+                template_infos_json = json.dumps(template_infos_value)
+            else:
+                template_infos_json = None
+
+            cursor.execute(
+                """
+                INSERT INTO job_templates (tower_job_template_id,
+                                           tower_job_template_name,
+                                           playbook_path,
+                                           compliance_interval,
+                                           awx_organisation,
+                                           template_infos)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT (tower_job_template_id) DO UPDATE
+                    SET tower_job_template_name = excluded.tower_job_template_name,
+                        playbook_path           = excluded.playbook_path,
+                        compliance_interval     = excluded.compliance_interval,
+                        awx_organisation        = excluded.awx_organisation,
+                        template_infos          = excluded.template_infos
+                """,
+                (
+                    template_data["tower_job_template_id"],
+                    template_data["tower_job_template_name"],
+                    template_data.get("playbook_path"),
+                    template_data.get("compliance_interval", 0),
+                    template_data.get("awx_organisation"),
+                    template_infos_json,
+                ),
+            )
+
+            # insert job
+            # convert awx_tags list to comma-separated string for SQLite
+            awx_tags_str = ",".join(job_data.get("awx_tags", []))
+
+            # ensure extra_vars and artifacts are strings
+            extra_vars = job_data.get("extra_vars", "{}")
+            if isinstance(extra_vars, dict):
+                extra_vars = json.dumps(extra_vars)
+
+            artifacts = job_data.get("artifacts", "{}")
+            if isinstance(artifacts, dict):
+                artifacts = json.dumps(artifacts)
+
+            cursor.execute(
+                """
+                INSERT INTO jobs (tower_job_id,
+                                  tower_job_template_id,
+                                  ansible_limit,
+                                  tower_user_name,
+                                  awx_tags,
+                                  extra_vars,
+                                  artifacts,
+                                  tower_schedule_id,
+                                  tower_schedule_name,
+                                  tower_workflow_job_id,
+                                  tower_workflow_job_name,
+                                  start_time,
+                                  end_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    tower_job_id,
+                    job_data["tower_job_template_id"],
+                    job_data.get("ansible_limit"),
+                    job_data.get("tower_user_name"),
+                    awx_tags_str,
+                    extra_vars,
+                    artifacts,
+                    job_data.get("tower_schedule_id"),
+                    job_data.get("tower_schedule_name"),
+                    job_data.get("tower_workflow_job_id"),
+                    job_data.get("tower_workflow_job_name"),
+                    job_data.get("start_time"),
+                    job_data.get("end_time"),
+                ),
+            )
+
+            # insert stats
+            for stat in stats_data:
+                cursor.execute(
+                    """
+                    INSERT INTO stats (tower_job_id,
+                                       ansible_host,
+                                       ok,
+                                       failed,
+                                       unreachable,
+                                       changed,
+                                       skipped,
+                                       rescued,
+                                       ignored)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (
+                        tower_job_id,
+                        stat["ansible_host"],
+                        stat["ok"],
+                        stat["failed"],
+                        stat["unreachable"],
+                        stat["changed"],
+                        stat["skipped"],
+                        stat["rescued"],
+                        stat["ignored"],
+                    ),
+                )
+
+            # insert tasks and callbacks
+            for task in tasks_data:
+                # Insert task
+                cursor.execute(
+                    """
+                    INSERT INTO tasks (ansible_uuid,
+                                       tower_job_id,
+                                       task_name)
+                    VALUES (?, ?, ?)
+                    """,
+                    (
+                        task["ansible_uuid"],
+                        tower_job_id,
+                        task["task_name"],
+                    ),
+                )
+
+                # insert callbacks for this task
+                for callback in task.get("callbacks", []):
+                    result_dump = json.dumps(callback["result_dump"])
+
+                    cursor.execute(
+                        """
+                        INSERT INTO task_callbacks (task_ansible_uuid,
+                                                    ansible_host,
+                                                    state,
+                                                    module,
+                                                    timestamp,
+                                                    result_dump)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            task["ansible_uuid"],
+                            callback["ansible_host"],
+                            callback["state"],
+                            callback["module"],
+                            callback["timestamp"],
+                            result_dump,
+                        ),
+                    )
+
+            conn.commit()
+
+            return tower_job_id
+
+        except ValueError as e:
+            conn.rollback()
+            raise ValueError(f"Failed to import job: {str(e)}") from e
 
 
 class PostgresApiRepository(ApiRepository):
@@ -632,3 +958,288 @@ class PostgresApiRepository(ApiRepository):
             except ForeignKeyViolation as ex:
                 raise LufaKeyError("tower_job_id", tower_job_id) from ex
             db_conn.commit()
+
+    def export_job(self, tower_job_id: int) -> dict:
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+
+        # get job data with template info
+        cursor.execute(
+            """
+            SELECT v_job_status.*,
+                   job_templates.tower_job_template_name,
+                   job_templates.playbook_path,
+                   job_templates.compliance_interval,
+                   job_templates.awx_organisation,
+                   job_templates.template_infos,
+                   to_char(v_job_status.start_time, 'YYYY-MM-DD"T"HH24:MI:SS.MS') as start_time,
+                   to_char(v_job_status.end_time, 'YYYY-MM-DD"T"HH24:MI:SS.MS')   as end_time
+            FROM v_job_status
+                     JOIN job_templates
+                          ON v_job_status.tower_job_template_id = job_templates.tower_job_template_id
+            WHERE v_job_status.tower_job_id = %s
+            """,
+            (tower_job_id,),
+        )
+
+        job = cursor.fetchone()
+        if not job:
+            raise ResourceNotFoundError(f"Job with id {tower_job_id} not found")
+
+        # get stats
+        cursor.execute(
+            """
+            SELECT ansible_host,
+                   ok,
+                   failed,
+                   unreachable,
+                   changed,
+                   skipped,
+                   rescued,
+                   ignored
+            FROM stats
+            WHERE tower_job_id = %s
+            ORDER BY ansible_host
+            """,
+            (tower_job_id,),
+        )
+        stats = cursor.fetchall()
+
+        # get tasks with their callbacks
+        cursor.execute(
+            """
+            SELECT tasks.ansible_uuid,
+                   tasks.task_name,
+                   json_agg(
+                           json_build_object(
+                                   'ansible_host', task_callbacks.ansible_host,
+                                   'state', task_callbacks.state,
+                                   'module', task_callbacks.module,
+                                   'timestamp', to_char(task_callbacks.timestamp, 'YYYY-MM-DD"T"HH24:MI:SS.MS'),
+                                   'result_dump', task_callbacks.result_dump
+                           ) ORDER BY task_callbacks.timestamp
+                   ) as callbacks
+            FROM tasks
+                     LEFT JOIN task_callbacks
+                               ON tasks.ansible_uuid = task_callbacks.task_ansible_uuid
+            WHERE tasks.tower_job_id = %s
+            GROUP BY tasks.ansible_uuid, tasks.task_name
+            ORDER BY tasks.task_name
+            """,
+            (tower_job_id,),
+        )
+
+        tasks_with_callbacks = cursor.fetchall()
+
+        # build export structure
+        export_data = {
+            "exported_at": self.db_manager.get_db_now(),
+            "job": {
+                "tower_job_id": job["tower_job_id"],
+                "tower_job_template_id": job["tower_job_template_id"],
+                "tower_job_template_name": job["tower_job_template_name"],
+                "ansible_limit": job["ansible_limit"],
+                "tower_user_name": job["tower_user_name"],
+                "awx_tags": job["awx_tags"],
+                "extra_vars": job["extra_vars"],
+                "artifacts": job["artifacts"],
+                "tower_schedule_id": job["tower_schedule_id"],
+                "tower_schedule_name": job["tower_schedule_name"],
+                "tower_workflow_job_id": job["tower_workflow_job_id"],
+                "tower_workflow_job_name": job["tower_workflow_job_name"],
+                "start_time": job["start_time"],
+                "end_time": job["end_time"],
+                "state": job["state"],
+            },
+            "job_template": {
+                "tower_job_template_id": job["tower_job_template_id"],
+                "tower_job_template_name": job["tower_job_template_name"],
+                "playbook_path": job["playbook_path"],
+                "compliance_interval": job["compliance_interval"],
+                "awx_organisation": job["awx_organisation"],
+                "template_infos": job["template_infos"],
+            },
+            "stats": stats,
+            "tasks": [
+                {
+                    "ansible_uuid": task["ansible_uuid"],
+                    "task_name": task["task_name"],
+                    "callbacks": task["callbacks"] if task["callbacks"] else [],
+                }
+                for task in tasks_with_callbacks
+            ],
+        }
+        return export_data
+
+    def import_job(self, export_data: dict) -> int:
+        """Imports a job from a dict
+        Returns the tower_job_id of the imported job.
+        """
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+
+        job_data = export_data.get("job")
+        template_data = export_data.get("job_template")
+        stats_data = export_data.get("stats", [])
+        tasks_data = export_data.get("tasks", [])
+
+        if not job_data or not template_data:
+            raise ValueError("Invalid export data: missing job or job_template")
+
+        tower_job_id = job_data["tower_job_id"]
+
+        # check if job already exists
+        if self.job_exists(tower_job_id):
+            raise ValueError(f"Job with id {tower_job_id} already exists")
+
+        try:
+            # insert/update job_template
+            cursor.execute(
+                """
+                INSERT INTO job_templates (tower_job_template_id,
+                                           tower_job_template_name,
+                                           playbook_path,
+                                           compliance_interval,
+                                           awx_organisation,
+                                           template_infos)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (tower_job_template_id) DO UPDATE
+                    SET tower_job_template_name = EXCLUDED.tower_job_template_name,
+                        playbook_path           = EXCLUDED.playbook_path,
+                        compliance_interval     = EXCLUDED.compliance_interval,
+                        awx_organisation        = EXCLUDED.awx_organisation,
+                        template_infos          = EXCLUDED.template_infos
+                """,
+                (
+                    template_data["tower_job_template_id"],
+                    template_data["tower_job_template_name"],
+                    template_data.get("playbook_path"),
+                    template_data.get("compliance_interval", 0),
+                    template_data.get("awx_organisation"),
+                    json.dumps(template_data.get("template_infos")) if template_data.get("template_infos") else None,
+                ),
+            )
+
+            # insert job
+            # ensure extra_vars and artifacts are strings
+            extra_vars = job_data.get("extra_vars", "{}")
+            if isinstance(extra_vars, dict):
+                extra_vars = json.dumps(extra_vars)
+
+            artifacts = job_data.get("artifacts", "{}")
+            if isinstance(artifacts, dict):
+                artifacts = json.dumps(artifacts)
+
+            cursor.execute(
+                """
+                INSERT INTO jobs (tower_job_id,
+                                  tower_job_template_id,
+                                  ansible_limit,
+                                  tower_user_name,
+                                  awx_tags,
+                                  extra_vars,
+                                  artifacts,
+                                  tower_schedule_id,
+                                  tower_schedule_name,
+                                  tower_workflow_job_id,
+                                  tower_workflow_job_name,
+                                  start_time,
+                                  end_time)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    tower_job_id,
+                    job_data["tower_job_template_id"],
+                    job_data.get("ansible_limit"),
+                    job_data.get("tower_user_name"),
+                    json.dumps(job_data.get("awx_tags", [])),
+                    extra_vars,
+                    artifacts,
+                    job_data.get("tower_schedule_id"),
+                    job_data.get("tower_schedule_name"),
+                    job_data.get("tower_workflow_job_id"),
+                    job_data.get("tower_workflow_job_name"),
+                    job_data.get("start_time"),
+                    job_data.get("end_time"),
+                ),
+            )
+
+            # insert stats
+            for stat in stats_data:
+                cursor.execute(
+                    """
+                    INSERT INTO stats (tower_job_id,
+                                       ansible_host,
+                                       ok,
+                                       failed,
+                                       unreachable,
+                                       changed,
+                                       skipped,
+                                       rescued,
+                                       ignored)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT DO NOTHING
+                    """,
+                    (
+                        tower_job_id,
+                        stat["ansible_host"],
+                        stat["ok"],
+                        stat["failed"],
+                        stat["unreachable"],
+                        stat["changed"],
+                        stat["skipped"],
+                        stat["rescued"],
+                        stat["ignored"],
+                    ),
+                )
+
+            # insert tasks and callbacks
+            for task in tasks_data:
+                # Insert task
+                cursor.execute(
+                    """
+                    INSERT INTO tasks (ansible_uuid,
+                                       tower_job_id,
+                                       task_name)
+                    VALUES (%s, %s, %s)
+                    """,
+                    (
+                        task["ansible_uuid"],
+                        tower_job_id,
+                        task["task_name"],
+                    ),
+                )
+
+                # insert callbacks for this task
+                for callback in task.get("callbacks", []):
+                    result_dump = json.dumps(callback["result_dump"])
+                    cursor.execute(
+                        """
+                        INSERT INTO task_callbacks (task_ansible_uuid,
+                                                    ansible_host,
+                                                    state,
+                                                    module,
+                                                    timestamp,
+                                                    result_dump)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            task["ansible_uuid"],
+                            callback["ansible_host"],
+                            callback["state"],
+                            callback["module"],
+                            callback.get("timestamp"),
+                            result_dump,
+                        ),
+                    )
+
+            # refresh materialized view for compliance calculations
+            cursor.execute("REFRESH MATERIALIZED VIEW v_host_templates;")
+
+            conn.commit()
+
+            return tower_job_id
+
+        except Exception as e:
+            conn.rollback()
+            raise ValueError(f"Failed to import job: {str(e)}") from e

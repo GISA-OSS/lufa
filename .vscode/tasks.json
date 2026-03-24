@@ -18,13 +18,13 @@
         {
             "label": "pytest integration",
             "type": "shell",
-            "command": "cd tests/integration; PYTHONPATH=../..: pytest -m sqlite3 -vv",
+            "command": "cd tests/integration; PYTHONPATH=../..: pytest -m 'not postgres' -vv",
             "problemMatcher": []
         },
         {
             "label": "pytest integration last failed",
             "type": "shell",
-            "command": "cd tests/integration; PYTHONPATH=../..: pytest -m sqlite3 -vv --last-failed",
+            "command": "cd tests/integration; PYTHONPATH=../..: pytest -m 'not postgres' -vv --last-failed",
             "problemMatcher": []
         },
         {

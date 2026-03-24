@@ -2,7 +2,7 @@ import json
 import logging
 import sqlite3
 from abc import ABC, abstractmethod
-from typing import Optional, TypeAlias, TypedDict
+from typing import Optional, TypeAlias, TypedDict, cast
 
 from psycopg2.errors import ForeignKeyViolation, InvalidDatetimeFormat, InvalidTextRepresentation
 
@@ -32,10 +32,20 @@ class Callback(TypedDict):
     result_dump: str
 
 
+class CallbackExport(Callback):
+    timestamp: TimeStamp
+
+
 class Task(TypedDict):
     ansible_uuid: str
     tower_job_id: int
     task_name: str
+
+
+class TaskExport(TypedDict):
+    ansible_uuid: str
+    task_name: str
+    callbacks: list[CallbackExport]
 
 
 class TowerJobStats(TypedDict):
@@ -57,6 +67,41 @@ class JobTemplateComplianceStates(TypedDict):
     template_name: str
     tower_job_template_id: int
     organisation: str
+
+
+class FullJob(TypedDict):
+    tower_job_id: int
+    tower_job_template_id: int
+    tower_job_template_name: str
+    ansible_limit: str
+    tower_user_name: str
+    awx_tags: list[str]
+    extra_vars: JSon
+    artifacts: JSon
+    tower_schedule_id: int
+    tower_schedule_name: str
+    tower_workflow_job_id: int
+    tower_workflow_job_name: str
+    start_time: TimeStamp
+    end_time: TimeStamp | None
+    state: JobState
+
+
+class TowerJobTemplate(TypedDict):
+    tower_job_template_id: int
+    tower_job_template_name: str
+    playbook_path: str
+    compliance_interval: int
+    awx_organisation: str
+    template_infos: str | None
+
+
+class JobExport(TypedDict):
+    exported_at: TimeStamp
+    job: FullJob
+    job_template: TowerJobTemplate
+    stats: list[TowerJobStats]
+    tasks: list[TaskExport]
 
 
 class ApiRepository(ABC):
@@ -136,12 +181,12 @@ class ApiRepository(ABC):
         pass
 
     @abstractmethod
-    def export_job(self, tower_job_id: int) -> dict:
+    def export_job(self, tower_job_id: int) -> JobExport:
         """Exports complete job data with tasks and callbacks"""
         pass
 
     @abstractmethod
-    def import_job(self, job_data: dict) -> int:
+    def import_job(self, export_data: JobExport) -> int:
         """Imports a job from a dict
         Returns the tower_job_id of the imported job.
         """
@@ -392,7 +437,7 @@ class SqliteApiRepository(ApiRepository):
 
         conn.commit()
 
-    def export_job(self, tower_job_id: int) -> dict:
+    def export_job(self, tower_job_id: int) -> JobExport:
         """Exports complete job data with tasks and callbacks"""
         conn = self.db_manager.get_db_connection()
         cursor = conn.cursor()
@@ -486,10 +531,10 @@ class SqliteApiRepository(ApiRepository):
                     }
                 )
 
-        tasks_with_callbacks = list(tasks_dict.values())
+        tasks_with_callbacks = cast(list[TaskExport], list(tasks_dict.values()))
 
         # build export structure
-        export_data = {
+        export_data: JobExport = {
             "exported_at": self.db_manager.get_db_now(),
             "job": {
                 "tower_job_id": job["tower_job_id"],
@@ -522,7 +567,7 @@ class SqliteApiRepository(ApiRepository):
 
         return export_data
 
-    def import_job(self, export_data: dict) -> int:
+    def import_job(self, export_data: JobExport) -> int:
         """
         Imports a job from export data.
 
@@ -548,7 +593,7 @@ class SqliteApiRepository(ApiRepository):
 
         try:
             # insert/update job_template
-            template_infos_value = template_data.get("template_infos", {})
+            template_infos_value = cast(str, template_data.get("template_infos", {}))
             if template_infos_value is not None:
                 template_infos_json = json.dumps(template_infos_value)
             else:
@@ -675,7 +720,7 @@ class SqliteApiRepository(ApiRepository):
 
                 # insert callbacks for this task
                 for callback in task.get("callbacks", []):
-                    result_dump = json.dumps(callback["result_dump"])
+                    result_dump = callback["result_dump"]
 
                     cursor.execute(
                         """
@@ -959,7 +1004,7 @@ class PostgresApiRepository(ApiRepository):
                 raise LufaKeyError("tower_job_id", tower_job_id) from ex
             db_conn.commit()
 
-    def export_job(self, tower_job_id: int) -> dict:
+    def export_job(self, tower_job_id: int) -> JobExport:
         conn = self.db_manager.get_db_connection()
         cursor = conn.cursor()
 
@@ -1029,10 +1074,10 @@ class PostgresApiRepository(ApiRepository):
             (tower_job_id,),
         )
 
-        tasks_with_callbacks = cursor.fetchall()
+        tasks_with_callbacks: list[TaskExport] = cursor.fetchall()
 
         # build export structure
-        export_data = {
+        export_data: JobExport = {
             "exported_at": self.db_manager.get_db_now(),
             "job": {
                 "tower_job_id": job["tower_job_id"],
@@ -1071,7 +1116,7 @@ class PostgresApiRepository(ApiRepository):
         }
         return export_data
 
-    def import_job(self, export_data: dict) -> int:
+    def import_job(self, export_data: JobExport) -> int:
         """Imports a job from a dict
         Returns the tower_job_id of the imported job.
         """

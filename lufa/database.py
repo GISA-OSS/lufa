@@ -94,7 +94,7 @@ class SqliteDatabaseManager(DatabaseManager):
 
     def get_db_now(self) -> str:
         cur = self.get_db_connection().cursor()
-        cur.execute("select datetime('now') as now;")
+        cur.execute("select strftime('%Y-%m-%d %H:%M', datetime('now')) as now;")
         return cur.fetchone()["now"]
 
 

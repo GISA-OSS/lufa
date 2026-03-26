@@ -1167,11 +1167,8 @@ class PostgresApiRepository(ApiRepository):
 
             # insert job
             # ensure extra_vars and artifacts are strings
-            extra_vars = job_data.get("extra_vars", "{}")
-            if isinstance(extra_vars, dict):
-                extra_vars = json.dumps(extra_vars)
-
-            artifacts = cast(dict, job_data.get("artifacts", {}))
+            extra_vars = json.dumps(cast(dict, job_data.get("extra_vars", {})))
+            artifacts = json.dumps(cast(dict, job_data.get("artifacts", {})))
 
             cursor.execute(
                 """

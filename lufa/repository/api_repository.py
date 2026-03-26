@@ -1171,9 +1171,7 @@ class PostgresApiRepository(ApiRepository):
             if isinstance(extra_vars, dict):
                 extra_vars = json.dumps(extra_vars)
 
-            artifacts = job_data.get("artifacts", "{}")
-            if isinstance(artifacts, dict):
-                artifacts = json.dumps(artifacts)
+            artifacts = cast(dict, job_data.get("artifacts", {}))
 
             cursor.execute(
                 """

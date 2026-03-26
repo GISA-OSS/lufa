@@ -1,6 +1,8 @@
+from typing import cast
+
 import pytest
 
-from lufa.repository.api_repository import ApiRepository, JobExport
+from lufa.repository.api_repository import ApiRepository, JobExport, TowerJobStats
 from lufa.repository.backend_repository import ResourceNotFoundError
 from tests.integration.conftest import HostIntependantTowerJobStats, LufaFactory
 
@@ -200,10 +202,7 @@ class TestImportJob:
         reexport = api_repository.export_job(imported_job_id)
 
         assert import_data["exported_at"] < reexport["exported_at"]
-        import_data["tasks"].sort(key=lambda x: x["ansible_uuid"])
-        reexport["tasks"].sort(key=lambda x: x["ansible_uuid"])
-        masked = {"exported_at": "masked"}
-        assert {**reexport, **masked} == {**import_data, **masked}
+        self.assert_mostly_equal(reexport, import_data)
 
     def test_import_existing_job_fails(
         self,
@@ -312,8 +311,13 @@ class TestImportJob:
         api_repository_to_backend.import_job(initial_export)
         reexport = api_repository_to_backend.export_job(job.tower_job_id)
 
-        assert initial_export["exported_at"] <= reexport["exported_at"]
-        initial_export["tasks"].sort(key=lambda x: x["ansible_uuid"])
-        reexport["tasks"].sort(key=lambda x: x["ansible_uuid"])
+        self.assert_mostly_equal(reexport, initial_export)
+
+    def assert_mostly_equal(self, export: JobExport, original: JobExport) -> None:
+        """assert two JobExports are same with only specified possible changes."""
+        assert original["exported_at"] <= export["exported_at"]
+        export["stats"] = [cast(TowerJobStats, dict(item)) for item in export["stats"]]
+        original["tasks"].sort(key=lambda x: x["ansible_uuid"])
+        export["tasks"].sort(key=lambda x: x["ansible_uuid"])
         masked = {"exported_at": "masked"}
-        assert {**reexport, **masked} == {**initial_export, **masked}
+        assert {**export, **masked} == {**original, **masked}

@@ -60,8 +60,8 @@ class TestExportJob:
         assert "Install packages" in task_names
         assert "Configure service" in task_names
 
-        assert type(result["job"]["extra_vars"]) == str
-        assert type(result["job"]["artifacts"]) == str
+        assert type(result["job"]["extra_vars"]) is str
+        assert type(result["job"]["artifacts"]) is str
 
         # verify callbacks
         for task in result["tasks"]:

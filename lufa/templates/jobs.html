@@ -77,147 +77,146 @@
 <script type="text/javascript" src="{{ url_for('static', filename='long-text-tooltip.js') }}"></script>
 <script type="text/javascript" src="{{ url_for('static', filename='filter-sharing.js') }}"></script>
 <script nonce="{{crp_nonce}}">
-
-	// Job-ID handler
-	$("#open_job").click(function() {
-		let job_id = $("#job_id").val();
-		let path = "/jobs/" + job_id;
-		globalThis.location.href = path;
-	});
-	$("#job_id").keypress(function(event) {
-		let keycode = (event.keyCode ? event.keyCode : event.which);
-		if (keycode === 13) {
-      		event.preventDefault();
-			let job_id = $("#job_id").val();
-			let path = "/jobs/" + job_id;
-			globalThis.location.href = path;
-		}
-	});
-
-	// Days handler
-	$("#show_days").click(function() {
-		jobs_table.ajax.reload(null, false);
-	});
-	$("#days").keypress(function(event){
-		let keycode = (event.keyCode ? event.keyCode : event.which);
-		if (keycode === 13){
-      		event.preventDefault();
-			jobs_table.ajax.reload(null, false);
-			return false;
-		}
-	});
-
 	$(document).ready(function () {
 		// initialize jobs_table
 		$.fn.dataTable.luxon("yyyy-MM-dd HH:mm:ss");
-		let jobs_table = $('#jobs').DataTable({
-			responsive: false,
-  			autoWidth: true, // dynamic sizing based on cell content
-			columnDefs: [
-				{
-					targets: '_all',
-					className: 'dt-wrap'
-				}
-			],
-			ajax: {
-				url: '/data/jobs',
-				data: function ( d ) {
-					d.days = $("#days").val();
-				},
-				dataSrc: 'jobs_table.data'
-			},
-			columns: [
-				{ 
-					title: "Job ID",
-					data: "tower_job_id",
-					render: function ( data, type, row, meta ) {
-						return '<a href="/jobs/' + data + '">' + data + '</a>';	
-					}
-				},
-				{
-					title: "Name",
-					data: "tower_job_template_name"
-				},
-				{
-					title: "Organization",
-					data: "awx_organisation"
-				},
-				{
-					title: "Tags",
-					data: "awx_tags"
-				},
-				{
-					title: "Compliance Interval in Days",
-					data: "compliance_interval",
-					type: "int",
-					createdCell: function (cell, cellData, rowData, rowIndex, colIndex){ 
-						if ( cellData > 0) {
-							$(cell).addClass("fw-bold");
-						}
-					}
-				},
-				{
-					title: "User",
-					data: "tower_user_name"
-				},	
-				{
-					title: "Schedule",
-					data: "tower_schedule_name"
-				},	
-				{
-					title: "Workflow",
-					data: "tower_workflow_job_name"
-				},	
-				{
-					title: "Start Time",
-					data: "start_time",
-					type: "luxon-yyyy-MM-dd HH:mm:ss.ms",
-					render: DataTable.render.datetime('yyyy-MM-dd HH:mm:ss')
-				},
-				{
-					title: "End Time",
-					data: "end_time",
-					type: "luxon-yyyy-MM-dd HH:mm:ss.ms",
-					render: DataTable.render.datetime('yyyy-MM-dd HH:mm:ss')
-				},
-				{
-					title: "State",
-					data: "state",
-					createdCell: function (cell, cellData, rowData, rowIndex, colIndex){ 
-						if ( cellData === "success" ) {
-							$(cell).addClass( 'table-success' );
-    					} else  if ( cellData === "started" ) {
-							$(cell).addClass( 'table-warning' );
-						} else  if ( cellData === "error" ) {
+        let jobs_table = $('#jobs').DataTable({
+            responsive: false,
+            autoWidth: true, // dynamic sizing based on cell content
+            columnDefs: [
+                {
+                    targets: '_all',
+                    className: 'dt-wrap'
+                }
+            ],
+            ajax: {
+                url: '/data/jobs',
+                data: function (d) {
+                    d.days = $("#days").val();
+                },
+                dataSrc: 'jobs_table.data'
+            },
+            columns: [
+                {
+                    title: "Job ID",
+                    data: "tower_job_id",
+                    render: function (data, type, row, meta) {
+                        return '<a href="/jobs/' + data + '">' + data + '</a>';
+                    }
+                },
+                {
+                    title: "Name",
+                    data: "tower_job_template_name"
+                },
+                {
+                    title: "Organization",
+                    data: "awx_organisation"
+                },
+                {
+                    title: "Tags",
+                    data: "awx_tags"
+                },
+                {
+                    title: "Compliance Interval in Days",
+                    data: "compliance_interval",
+                    type: "int",
+                    createdCell: function (cell, cellData, rowData, rowIndex, colIndex) {
+                        if (cellData > 0) {
+                            $(cell).addClass("fw-bold");
+                        }
+                    }
+                },
+                {
+                    title: "User",
+                    data: "tower_user_name"
+                },
+                {
+                    title: "Schedule",
+                    data: "tower_schedule_name"
+                },
+                {
+                    title: "Workflow",
+                    data: "tower_workflow_job_name"
+                },
+                {
+                    title: "Start Time",
+                    data: "start_time",
+                    type: "luxon-yyyy-MM-dd HH:mm:ss.ms",
+                    render: DataTable.render.datetime('yyyy-MM-dd HH:mm:ss')
+                },
+                {
+                    title: "End Time",
+                    data: "end_time",
+                    type: "luxon-yyyy-MM-dd HH:mm:ss.ms",
+                    render: DataTable.render.datetime('yyyy-MM-dd HH:mm:ss')
+                },
+                {
+                    title: "State",
+                    data: "state",
+                    createdCell: function (cell, cellData, rowData, rowIndex, colIndex) {
+                        if (cellData === "success") {
+                            $(cell).addClass('table-success');
+                        } else if (cellData === "started") {
+                            $(cell).addClass('table-warning');
+                        } else if (cellData === "error") {
                             $(cell).css('backgroundColor', 'purple')
                             $(cell).css('color', 'white')
-						}else {
-							$(cell).addClass( 'table-danger' );
-						}
+                        } else {
+                            $(cell).addClass('table-danger');
+                        }
 
-  					}
+                    }
 
-				},
-				{
-					title: "Limit",
-					data: "ansible_limit",
-					render: function (data, type, row, meta) {
-						return useLongTextTooltip(data, type);
-					}
-				},
-			],
-			dom: 'QBfrtip', // Add Q - Query Builder, B - Buttons
-			buttons: [ 'copy', 'excel', 'pdf', 'colvis' , filterSharingButton()],
-			order: [[8, "desc"]],
-			pageLength: 100
-		});
+                },
+                {
+                    title: "Limit",
+                    data: "ansible_limit",
+                    render: function (data, type, row, meta) {
+                        return useLongTextTooltip(data, type);
+                    }
+                },
+            ],
+            dom: 'QBfrtip', // Add Q - Query Builder, B - Buttons
+            buttons: ['copy', 'excel', 'pdf', 'colvis', filterSharingButton()],
+            order: [[8, "desc"]],
+            pageLength: 100
+        });
 
 		globalThis.refresher.setUpdaterDataTablesXhr(jobs_table);
 		
 		jobs_table.on('init.dt', function () {
 			setFilterFromSharedURL(jobs_table);
 		});
-		
+
+
+        // Job-ID handler
+        $("#open_job").click(function() {
+            let job_id = $("#job_id").val();
+            let path = "/jobs/" + job_id;
+            globalThis.location.href = path;
+        });
+        $("#job_id").keypress(function(event) {
+            let keycode = (event.keyCode ? event.keyCode : event.which);
+            if (keycode === 13) {
+                event.preventDefault();
+                let job_id = $("#job_id").val();
+                let path = "/jobs/" + job_id;
+                globalThis.location.href = path;
+            }
+        });
+
+        // Days handler
+        $("#show_days").click(function() {
+            jobs_table.ajax.reload(null, false);
+        });
+        $("#days").keypress(function(event){
+            let keycode = (event.keyCode ? event.keyCode : event.which);
+            if (keycode === 13){
+                event.preventDefault();
+                jobs_table.ajax.reload(null, false);
+                return false;
+            }
+        });
 	});
 </script>
 {% endblock %}

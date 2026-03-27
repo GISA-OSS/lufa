@@ -8,7 +8,7 @@ from flask import Blueprint, current_app, jsonify, make_response
 from lufa.auth import ro_token_required, sanitize, token_required, with_json_data
 from lufa.decorators import debug_only
 from lufa.provider import get_api_repository, get_awx_client, get_database_manager
-from lufa.repository.api_repository import LufaKeyError
+from lufa.repository.api_repository import JobExport, LufaKeyError
 
 MALFORMED_JSON = {"error": "Malformed json"}
 
@@ -243,7 +243,7 @@ def jobs_export(tower_job_id: int):
         "tasks": list,
     },
 )
-def import_job(data: dict):
+def import_job(data: JobExport):
     """
     Imports a job from export data.
 

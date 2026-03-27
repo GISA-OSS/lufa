@@ -16,16 +16,16 @@
 			<th scope="col">ignored</th>
 		</tr>
 	</thead>
-	</tbody>
+	<tbody>
 		<tr>
-			<td id="hosts_started"></td>
-			<td class="table-success" id="hosts_ok"></td>
-			<td class="table-warning" id="hosts_changed"></td>
-			<td class="table-danger" id="hosts_unreachable"></td>
-			<td class="table-danger" id="hosts_failed"></td>
-			<td class="table-info" id="hosts_skipped"></td>
-			<td id="hosts_rescued"></td>
-			<td id="hosts_ignored"></td>
+            <td id="hosts_started"></td>
+            <td class="table-success" id="hosts_ok" data-table="#hosts" data-label="Status" data-field="state" data-value="ok"></td>
+            <td class="table-warning" id="hosts_changed" tabindex=0 data-table="#hosts" data-label="Status" data-field="state" data-value="changed"></td>
+            <td class="table-danger" id="hosts_unreachable" tabindex=0 data-table="#hosts" data-label="Status" data-field="state" data-value="unreachable"></td>
+            <td class="table-danger" id="hosts_failed" tabindex=0 data-table="#hosts" data-label="Status" data-field="state" data-value="failed"></td>
+            <td class="table-info" id="hosts_skipped" tabindex=0 data-table="#hosts" data-label="Status" data-field="state" data-value="skipped"></td>
+            <td class="table-primary" id="hosts_rescued" tabindex=0 data-table="#hosts" data-label="Status" data-field="state" data-value="rescued"></td>
+            <td class="table-secondary" id="hosts_ignored" tabindex=0 data-table="#hosts" data-label="Status" data-field="state" data-value="ignored"></td>
 		</tr>
 	</tbody>
 </table>
@@ -50,7 +50,15 @@
 {% endblock %}
 
 {% block workflowscripts %}
+<script type="text/javascript" src="{{ url_for('static', filename='customize-search-builder.js') }}"></script>
 <script nonce="{{crp_nonce}}">
+    // Trigger applySearchBuilder when a status cell is clicked
+    document.querySelectorAll('td[data-field][data-value]').forEach(td => {
+        td.addEventListener('click', function () {
+            applySearchBuilder(this.dataset.table, this, this.dataset.label, this.dataset.field, this.dataset.value);
+        })
+    })
+
 	$(document).ready(function () {
 		$.fn.dataTable.luxon("yyyy-MM-dd HH:mm:ss");
 		let hosts_table = $('#hosts').DataTable({

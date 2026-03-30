@@ -25,6 +25,93 @@ It provides quick insights into jobs, templates, and workflows with helpful filt
 - [Lufa callback plugin](https://github.com/GISA-OSS/lufa-callback)
 
 ## Quick Start
+
+### Docker Compose (Recommended)
+Docker Compose provides the easiest way to get LUFA up and running quickly.
+
+**Note:** Replace all `<secret>` placeholders with your own credentials before starting.
+
+1) Create a `docker-compose.yml` file:
+
+    **SQLite (Simple Setup)**
+    ```yaml
+    services:
+      lufa:
+        image: ghcr.io/gisa-oss/lufa:nightly
+        restart: always
+        environment: 
+          LUFA_SECRET_KEY: "<secret>"
+          LUFA_API_KEYS: "['<secret>']"
+          LUFA_AWX_BASE_URL: https://awx.example.com
+          LUFA_AWX_API_TOKEN: "<secret>"
+          LUFA_DB_TYPE: SQLITE
+          LUFA_DB_DATABASE: "/home/lufa/lufa.db"
+          LUFA_LOG_FILE_PATH: /home/lufa/lufa.log
+          LUFA_LOG_LEVEL: INFO
+          LUFA_AUTH: LOCAL
+          LUFA_AUTH_USER: admin
+          LUFA_AUTH_PASSWORD: "<secret>"
+        volumes:
+          - "./lufa.log:/home/lufa/lufa.log:rw"
+          - "./lufa.db:/home/lufa/lufa.db:rw"
+        ports:
+          - "8080:8080"
+    ```
+    or
+
+    **PostgreSQL (Production Setup)**
+    ```yaml
+    services:
+      postgres:
+        image: postgres:16
+        restart: always
+        environment:
+          POSTGRES_DB: lufa
+          POSTGRES_USER: lufa
+          POSTGRES_PASSWORD: "<secret>"
+          TZ: "<timezone>"
+        volumes:
+          - postgres-data:/var/lib/postgresql/data
+      lufa:
+        image: ghcr.io/gisa-oss/lufa:nightly
+        restart: always
+        environment:
+          LUFA_API_KEYS: "['<secret>']"
+          LUFA_AUTH_PASSWORD: "<secret>"
+          LUFA_SECRET_KEY: "<secret>"
+          LUFA_DB_PASSWORD: "<secret>"
+          LUFA_AWX_BASE_URL: https://awx.example.com
+          LUFA_AWX_API_TOKEN: "<secret>"
+          LUFA_DB_TYPE: POSTGRES
+          LUFA_DB_HOST: "postgres"
+          LUFA_DB_DATABASE: "lufa"
+          LUFA_DB_USER: "lufa"
+          LUFA_LOG_FILE_PATH: /home/lufa/lufa.log
+          LUFA_LOG_LEVEL: INFO
+          LUFA_AUTH: LOCAL
+          LUFA_AUTH_USER: admin
+          TZ: "<timezone>"
+        volumes:
+          - "./lufa.log:/home/lufa/lufa.log:rw"
+        ports:
+          - "8080:8080"
+        depends_on:
+          - postgres
+    volumes:
+      postgres-data:
+    ```
+
+2) Start docker compose:
+   ```bash
+   docker-compose up -d
+   ```
+
+The application will be available at [http://localhost:8080](http://localhost:8080).
+
+> [!IMPORTANT]  
+> For `LUFA_AWX_API_TOKEN`, use a token from an audit user with read-only permissions.
+> LUFA only requires read access to AWX/Ansible Automation Platform.
+
 ### Virtual environment
 1) Clone the repository:
 ```bash

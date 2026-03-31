@@ -18,17 +18,17 @@ It provides quick insights into jobs, templates, and workflows with helpful filt
   <tr>
     <td>
       <a href="docs/screenshots/lufa_job_overview_filtering.gif" target="_blank">
-        <img src="docs/screenshots/lufa_job_overview_filtering.gif" width="100%"/>
+        <img src="docs/screenshots/lufa_job_overview_filtering.gif" alt="Get an easy overview for your jobs with filters" width="100%"/>
       </a>
     </td>
     <td>
       <a href="docs/screenshots/lufa_workflow_slice_jobs.gif" target="_blank">
-        <img src="docs/screenshots/lufa_workflow_slice_jobs.gif" width="100%"/>
+        <img src="docs/screenshots/lufa_workflow_slice_jobs.gif" alt="Track the status and ouput of all workflow jobs in one place" width="100%"/>
       </a>
     </td>
     <td>
       <a href="docs/screenshots/lufa_hostcompliant.gif" target="_blank">
-        <img src="docs/screenshots/lufa_hostcompliant.gif" width="100%"/>
+        <img src="docs/screenshots/lufa_hostcompliant.gif" alt="Mark and track compliance-related jobs for auditing" width="100%"/>
       </a>
     </td>
   </tr>

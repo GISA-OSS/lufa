@@ -28,7 +28,7 @@ class SqliteUserRepository(UserRepository):
     def save_user(self, username: str, distinguished_name: str, data: dict[str, str]) -> None:
         conn = self.db_manager.get_db_connection()
         cursor = conn.cursor()
-        data_json = json.dumps(data)
+        data_json = json.dumps(dict(data), default=str)
 
         cursor.execute(
             """
@@ -75,7 +75,7 @@ class PostgresUserRepository(UserRepository):
     def save_user(self, username: str, distinguished_name: str, data: dict[str, str]) -> None:
         conn = self.db_manager.get_db_connection()
         cursor = conn.cursor()
-        data_json = json.dumps(data)
+        data_json = json.dumps(dict(data), default=str)
 
         cursor.execute(
             """

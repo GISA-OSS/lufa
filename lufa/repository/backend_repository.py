@@ -1194,22 +1194,21 @@ class PostgresBackendRepository(BackendRepository):
         cursor = conn.cursor()
         cursor.execute(
             """
-                    SELECT DISTINCT ON (tower_job_template_id)
-                        tower_job_template_id,
-                        tower_job_template_name,
+                    SELECT DISTINCT ON (o.tower_job_template_id)
+                        o.tower_job_template_id,
+                        o.tower_job_template_name,
                         awx_tags,
-                        (SELECT bool_or(compliant)
-                         FROM v_host_templates as i
-                         WHERE o.tower_job_template_id = i.tower_job_template_id
-                            AND o.ansible_host = i.ansible_host
-                        ) AS compliant,
+                        i.template_compliant AS compliant,
                         successful,
-                        to_char(start_time, 'YYYY-MM-DD"T"HH24:MI:SS.MS') as start_time,
-                        compliance_interval,
+                        to_char(start_time, 'YYYY-MM-DD"T"HH24:MI:SS.MS') AS start_time,
+                        o.compliance_interval,
                         tower_job_id
                     FROM v_host_templates AS o
-                    WHERE ansible_host = %s
-                    ORDER BY tower_job_template_id, awx_tags, start_time desc
+                    join v_host_template_compliance AS i
+                    ON o.tower_job_template_id = i.tower_job_template_id
+                    AND o.ansible_host = i.ansible_host
+                    WHERE o.ansible_host = %s
+                    ORDER BY o.tower_job_template_id, awx_tags, start_time DESC
                 """,
             (ansible_host,),
         )

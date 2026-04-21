@@ -54,7 +54,22 @@ function filterSharingButton() {
             }
             let full_url = globalThis.location.origin + globalThis.location.pathname + hashValue;
 
-            navigator.clipboard.writeText(full_url);
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                // copy URL to the clipboard and display a feedback message
+                navigator.clipboard.writeText(full_url).then(() => {
+                    dt.buttons.info(
+                        'Filter URL copied to clipboard',
+                        'The shareable link has been copied to your clipboard.',
+                        2500
+                    )
+                }).catch((error) => {
+                    // display url for manual copy if the clipboard fails
+                    globalThis.alert('Clipboard failure.\nPlease copy manually:\n\n' + full_url);
+                });
+            } else {
+                // display url for manual copy if the clipboard is not available
+                globalThis.alert('Clipboard not available.\nPlease copy manually:\n\n' + full_url);
+            }
         }
     };
 }

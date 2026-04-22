@@ -4,6 +4,7 @@ DROP VIEW IF EXISTS v_host_templates_ordered;
 DROP VIEW IF EXISTS v_template_compliance;
 DROP VIEW IF EXISTS v_host_compliance;
 DROP VIEW IF EXISTS v_host_template_compliance;
+DROP INDEX IF EXISTS v_host_templates_index;
 DROP MATERIALIZED VIEW IF EXISTS v_host_templates;
 DROP VIEW IF EXISTS v_job_status;
 
@@ -152,6 +153,9 @@ CREATE MATERIALIZED VIEW v_host_templates AS
     ON stats.tower_job_id = jobs.tower_job_id
     JOIN job_templates
     ON jobs.tower_job_template_id = job_templates.tower_job_template_id;
+
+CREATE INDEX v_host_templates_index
+  ON v_host_templates (tower_job_template_id, ansible_host);
 
 CREATE VIEW v_host_template_compliance AS
 	SELECT

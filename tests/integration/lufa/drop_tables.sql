@@ -5,6 +5,7 @@ DROP INDEX IF EXISTS task_callbacks_task_uuid CASCADE;
 DROP INDEX IF EXISTS task_callbacks_ansible_host_index CASCADE;
 DROP INDEX IF EXISTS task_callbacks_timestamp_index CASCADE;
 DROP INDEX IF EXISTS stats_ansible_host_index CASCADE;
+DROP INDEX IF EXISTS v_host_templates_index;
 
 DROP TRIGGER IF EXISTS delete_unreferenced_job_templates ON jobs;
 DROP FUNCTION IF EXISTS delete_unreferenced_job_templates();

@@ -52,7 +52,7 @@ class TestExportJob:
             result_dump='{"changed": false}',
         )
 
-        result = api_repository.export_job(job.tower_job_id)
+        result: JobExport = api_repository.export_job(job.tower_job_id)
 
         # verify tasks
         assert len(result["tasks"]) == 2
@@ -62,6 +62,9 @@ class TestExportJob:
 
         assert type(result["job"]["extra_vars"]) is str
         assert type(result["job"]["artifacts"]) is str
+        for tasks in result["tasks"]:
+            for cb in tasks["callbacks"]:
+                assert type(cb["result_dump"]) is str
 
         # verify callbacks
         for task in result["tasks"]:

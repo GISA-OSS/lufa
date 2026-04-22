@@ -29,7 +29,7 @@ class Callback(TypedDict):
     ansible_host: str
     state: JobState
     module: str
-    result_dump: str
+    result_dump: JSon
 
 
 class CallbackExport(Callback):
@@ -1109,7 +1109,7 @@ class PostgresApiRepository(ApiRepository):
                 {
                     "ansible_uuid": task["ansible_uuid"],
                     "task_name": task["task_name"],
-                    "callbacks": task["callbacks"] if task["callbacks"] else [],
+                    "callbacks": (task["callbacks"] if task["callbacks"] else []),
                 }
                 for task in tasks_with_callbacks
             ],
@@ -1166,7 +1166,7 @@ class PostgresApiRepository(ApiRepository):
             )
 
             # insert job
-            # ensure extra_vars and artifacts are strings
+            # ensure extra_vars and artifacts are dicts
             extra_vars = cast(dict, job_data.get("extra_vars", {}))
             artifacts = cast(dict, job_data.get("artifacts", {}))
 
@@ -1252,7 +1252,7 @@ class PostgresApiRepository(ApiRepository):
 
                 # insert callbacks for this task
                 for callback in task.get("callbacks", []):
-                    result_dump = json.dumps(callback["result_dump"])
+                    result_dump = callback["result_dump"]
                     cursor.execute(
                         """
                         INSERT INTO task_callbacks (task_ansible_uuid,

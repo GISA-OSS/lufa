@@ -60,8 +60,8 @@ class TestExportJob:
         assert "Install packages" in task_names
         assert "Configure service" in task_names
 
-        assert type(result["job"]["extra_vars"]) is str
-        assert type(result["job"]["artifacts"]) is str
+        assert type(result["job"]["extra_vars"]) is dict
+        assert type(result["job"]["artifacts"]) is dict
 
         # verify callbacks
         for task in result["tasks"]:
@@ -93,8 +93,8 @@ class TestImportJob:
                 "ansible_limit": "*.example.com",
                 "tower_user_name": "importuser",
                 "awx_tags": ["import", "test"],
-                "extra_vars": '{"var1": "value1"}',
-                "artifacts": '{"key": "value"}',
+                "extra_vars": {"var1": "value1"},
+                "artifacts": {"key": "value"},
                 "tower_schedule_id": 12345,
                 "tower_schedule_name": "Daily Schedule",
                 "tower_workflow_job_id": 67890,
@@ -226,8 +226,8 @@ class TestImportJob:
                 "ansible_limit": "*.example.com",
                 "tower_user_name": "testuser",
                 "awx_tags": ["tag1"],
-                "extra_vars": "{}",
-                "artifacts": "{}",
+                "extra_vars": {},
+                "artifacts": {},
                 "tower_schedule_id": 42,
                 "tower_schedule_name": "abc",
                 "tower_workflow_job_id": 42,

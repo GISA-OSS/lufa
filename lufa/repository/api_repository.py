@@ -1109,7 +1109,11 @@ class PostgresApiRepository(ApiRepository):
                 {
                     "ansible_uuid": task["ansible_uuid"],
                     "task_name": task["task_name"],
-                    "callbacks": (task["callbacks"] if task["callbacks"] else []),
+                    "callbacks": (
+                        [{**cb, "result_dump": json.dumps(cb["result_dump"])} for cb in task["callbacks"]]
+                        if task["callbacks"]
+                        else []
+                    ),
                 }
                 for task in tasks_with_callbacks
             ],

@@ -4,8 +4,9 @@ import os
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import partial
 from importlib.resources import files
-from typing import Iterable, Literal, NamedTuple, TypedDict, cast
+from typing import Callable, Iterable, Literal, NamedTuple, TypeAlias, TypedDict, cast
 
 import pytest
 
@@ -181,11 +182,19 @@ def api_repository(mark_db_backend: str, db_manager: DatabaseManager) -> ApiRepo
     raise NotImplementedError(f"Unknown DB backend marker: pytest.mark.{mark_db_backend}")
 
 
+ApiRepositoryToBackend: TypeAlias = Callable[[], Iterable[ApiRepository]]
+
+
 @pytest.fixture
-def api_repository_to_backend(mark_db_to_backend: str) -> Iterable[ApiRepository]:
+def api_repository_to_backend(mark_db_to_backend: str) -> Iterable[ApiRepositoryToBackend]:
     for config in db_config(mark_db_to_backend):
-        for empty in empty_db(mark_db_to_backend, config):
-            yield api_repository(mark_db_to_backend, db_manager(empty))
+        yield partial(reset_api_repository, mark_db_to_backend, config)
+
+
+def reset_api_repository(mark_db_to_backend: str, config: DbConfig) -> Iterable[ApiRepository]:
+    # to be able to export then import to same Postgres DB
+    for empty in empty_db(mark_db_to_backend, config):
+        yield api_repository(mark_db_to_backend, db_manager(empty))
 
 
 @pytest.fixture

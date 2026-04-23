@@ -4,7 +4,7 @@ import pytest
 
 from lufa.repository.api_repository import ApiRepository, JobExport, TowerJobStats
 from lufa.repository.backend_repository import ResourceNotFoundError
-from tests.integration.conftest import HostIntependantTowerJobStats, LufaFactory
+from tests.integration.conftest import ApiRepositoryToBackend, HostIntependantTowerJobStats, LufaFactory
 
 HOST1 = "host1.example.com"
 HOST2 = "host2.example.com"
@@ -281,7 +281,7 @@ class TestImportJob:
     def test_export_job_with_tasks_and_callbacks(
         self,
         api_repository: ApiRepository,
-        api_repository_to_backend: ApiRepository,
+        api_repository_to_backend: ApiRepositoryToBackend,
         lufa_factory: LufaFactory,
         single_any_stat: HostIntependantTowerJobStats,
     ):
@@ -314,10 +314,11 @@ class TestImportJob:
         )
 
         initial_export = api_repository.export_job(job.tower_job_id)
-        api_repository_to_backend.import_job(initial_export)
-        reexport = api_repository_to_backend.export_job(job.tower_job_id)
+        for to_backend in api_repository_to_backend():  # to test postgre2postgres in single DB
+            to_backend.import_job(initial_export)
+            reexport = to_backend.export_job(job.tower_job_id)
 
-        self.assert_mostly_equal(reexport, initial_export)
+            self.assert_mostly_equal(reexport, initial_export)
 
     def assert_mostly_equal(self, export: JobExport, original: JobExport) -> None:
         """assert two JobExports are same with only specified possible changes."""

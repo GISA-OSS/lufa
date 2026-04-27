@@ -4,13 +4,14 @@ import os
 import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from functools import partial
 from importlib.resources import files
-from typing import Iterable, Literal, NamedTuple, TypedDict, cast
+from typing import Callable, Iterable, Literal, NamedTuple, TypeAlias, TypedDict, cast
 
 import pytest
 
 from lufa.database import DatabaseManager, NumDays, PostgresDatabaseManager, SqliteDatabaseManager
-from lufa.provider import AppConfig, DbConfig, PostgresConfig, SqliteConfig
+from lufa.provider import DbConfig, PostgresConfig, SqliteConfig
 from lufa.repository.api_repository import ApiRepository, PostgresApiRepository, SqliteApiRepository, TowerJobStats
 from lufa.repository.backend_repository import BackendRepository, PostgresBackendRepository, SqliteBackendRepository
 from lufa.repository.user_repository import PostgresUserRepository, SqliteUserRepository, UserRepository
@@ -19,13 +20,15 @@ SCOPE: Literal["function", "module"] = "function"  # Use "module" to keep DB-fil
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc):
-    if "mark_db_backend" in metafunc.fixturenames:
+    for key in ["mark_db_backend", "mark_db_to_backend"]:
+        if key not in metafunc.fixturenames:
+            continue
         relevant_marks = [pytest.mark.sqlite3, pytest.mark.postgres]
         found_mark_names = [
             m.name for m in metafunc.definition.iter_markers() if m.name in [r.name for r in relevant_marks]
         ]
         metafunc.parametrize(
-            "mark_db_backend",
+            key,
             (
                 # test that not marked with supported db backends get all
                 [pytest.param(r.name, marks=r) for r in relevant_marks]
@@ -85,7 +88,11 @@ def pytest_generate_tests(metafunc: pytest.Metafunc):
         metafunc.parametrize("single_any_stat", [pytest.param(p.param, id=p.title) for p in success_stats[:1]])
 
 
-@pytest.fixture(scope=SCOPE)
+@pytest.fixture(scope=SCOPE, name="db_config")
+def db_config_fixture(mark_db_backend: str) -> Iterable[DbConfig]:
+    yield from db_config(mark_db_backend)
+
+
 def db_config(mark_db_backend: str) -> Iterable[DbConfig]:
     match mark_db_backend:
         case pytest.mark.sqlite3.name:
@@ -116,14 +123,22 @@ def db_config(mark_db_backend: str) -> Iterable[DbConfig]:
             raise NotImplementedError(f"Unknown DB backend marker: pytest.mark.{mark_db_backend}")
 
 
-@pytest.fixture
+@pytest.fixture(name="db_manager")
+def db_manager_fixture(empty_db: DatabaseManager) -> DatabaseManager:
+    return db_manager(empty_db)
+
+
 def db_manager(empty_db: DatabaseManager) -> DatabaseManager:
     empty_db.init_db()
     return empty_db
 
 
-@pytest.fixture
-def empty_db(mark_db_backend: str, db_config: AppConfig) -> Iterable[DatabaseManager]:
+@pytest.fixture(name="empty_db")
+def empty_db_fixture(mark_db_backend: str, db_config: DbConfig) -> Iterable[DatabaseManager]:
+    yield from empty_db(mark_db_backend, db_config)
+
+
+def empty_db(mark_db_backend: str, db_config: DbConfig) -> Iterable[DatabaseManager]:
     match mark_db_backend:
         case pytest.mark.sqlite3.name:
             sqlite = SqliteDatabaseManager(db_config["DB_DATABASE"], str((files("lufa").joinpath("schema_sqlite.sql"))))
@@ -137,11 +152,12 @@ def empty_db(mark_db_backend: str, db_config: AppConfig) -> Iterable[DatabaseMan
 
             sqlite.close_db()
         case pytest.mark.postgres.name:
+            postgres_config = cast(PostgresConfig, db_config)
             postgres = PostgresDatabaseManager(
-                host=db_config["DB_HOST"],
-                user=db_config["DB_USER"],
-                database=db_config["DB_DATABASE"],
-                password=db_config["DB_PASSWORD"],
+                host=postgres_config["DB_HOST"],
+                user=postgres_config["DB_USER"],
+                database=postgres_config["DB_DATABASE"],
+                password=postgres_config["DB_PASSWORD"],
                 init_script=str(files("lufa").joinpath("schema.sql")),
             )
             with open(
@@ -153,13 +169,32 @@ def empty_db(mark_db_backend: str, db_config: AppConfig) -> Iterable[DatabaseMan
             postgres.close_db()
 
 
-@pytest.fixture
+@pytest.fixture(name="api_repository")
+def api_repository_fixture(mark_db_backend: str, db_manager: DatabaseManager) -> ApiRepository:
+    return api_repository(mark_db_backend, db_manager)
+
+
 def api_repository(mark_db_backend: str, db_manager: DatabaseManager) -> ApiRepository:
     if mark_db_backend == pytest.mark.sqlite3.name:
         return SqliteApiRepository(db_manager)
     if mark_db_backend == pytest.mark.postgres.name:
         return PostgresApiRepository(db_manager)
     raise NotImplementedError(f"Unknown DB backend marker: pytest.mark.{mark_db_backend}")
+
+
+ApiRepositoryToBackend: TypeAlias = Callable[[], Iterable[ApiRepository]]
+
+
+@pytest.fixture
+def api_repository_to_backend(mark_db_to_backend: str) -> Iterable[ApiRepositoryToBackend]:
+    for config in db_config(mark_db_to_backend):
+        yield partial(reset_api_repository, mark_db_to_backend, config)
+
+
+def reset_api_repository(mark_db_to_backend: str, config: DbConfig) -> Iterable[ApiRepository]:
+    # to be able to export then import to same Postgres DB
+    for empty in empty_db(mark_db_to_backend, config):
+        yield api_repository(mark_db_to_backend, db_manager(empty))
 
 
 @pytest.fixture

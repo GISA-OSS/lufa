@@ -67,7 +67,7 @@ def api_key_valid(api_key: str | None, require_write_permission: bool):
     if api_key is None:
         return False
     if api_key in current_app.config["API_KEYS"]:
-        current_app.logger.info("valid api_key")
+        current_app.logger.debug("valid api_key from %s", request.remote_addr)
         return True
     try:
         if api_key in current_app.config["API_KEYS_RO"]:

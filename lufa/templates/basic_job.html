@@ -49,7 +49,7 @@
             ).done(function (data) {
                 jobState = data.state;
                 writeJobStatus(jobState.state);
-                if (jobState != "started") {
+                if (jobState.state !== "started") {
                     refresher.setEnabled(false);
                 }
             });

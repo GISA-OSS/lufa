@@ -19,9 +19,12 @@ function getStatusElement(state) {
         badge.className = 'badge';
         badge.innerHTML = 'error';
         badge.style.backgroundColor = 'purple';
-    } else {
+    } else if (state === 'failed') {
         badge.className = 'badge bg-danger';
         badge.innerHTML = 'failed';
+    } else {
+        badge.className = 'badge bg-secondary';
+        badge.innerHTML = 'unknown';
     }
     return badge;
 }

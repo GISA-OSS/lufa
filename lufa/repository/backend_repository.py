@@ -369,11 +369,14 @@ class SqliteBackendRepository(BackendRepository):
         )
 
         line = cursor.fetchone()
-        line["awx_tags"] = line["awx_tags"].split(",")
-        line["template_infos"] = line["template_infos"] = (
-            json.loads(line["template_infos"]) if line["template_infos"] else None
-        )
-        return line
+        if line is not None:
+            line["awx_tags"] = line["awx_tags"].split(",")
+            line["template_infos"] = line["template_infos"] = (
+                json.loads(line["template_infos"]) if line["template_infos"] else None
+            )
+            return line
+
+        raise ResourceNotFoundError(f"Job with id {tower_job_id} not found")
 
     def get_job_task_callbacks(self, tower_job_id: int) -> list[JobTaskCallbacks]:
         conn = self.db_manager.get_db_connection()
@@ -1011,7 +1014,11 @@ class PostgresBackendRepository(BackendRepository):
             (tower_job_id,),
         )
 
-        return cursor.fetchone()
+        fetched = cursor.fetchone()
+        if fetched is not None:
+            return fetched
+
+        raise ResourceNotFoundError(f"Job with id {tower_job_id} not found")
 
     def get_job_task_callbacks(self, tower_job_id: int) -> list[JobTaskCallbacks]:
         conn = self.db_manager.get_db_connection()

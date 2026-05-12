@@ -41,6 +41,10 @@
 <script nonce="{{crp_nonce}}">
 
     $(document).ready(() => {
+        // set initial job state
+        let initialJobState = "{{ initial_job_state | default('unknown') }}";
+        writeJobStatus(initialJobState);
+
         globalThis.refresher.setUpdater(refresher => {
             let jobState = "";
 

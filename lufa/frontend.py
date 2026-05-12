@@ -52,9 +52,12 @@ def jobs_data():
 @login_required
 def job_recap(tower_job_id):
     """Renders the job recap page for the given job ID."""
+    initial_job_state = get_backend_repository().get_job_status(tower_job_id)["state"]
+
     return render_template(
         "job_recap.html",
         tower_job_id=tower_job_id,
+        initial_job_state=initial_job_state,
         tower_job_template_name=get_backend_repository().get_job_template_name_by_job_id(tower_job_id),
     )
 
@@ -74,9 +77,12 @@ def job_recap_data(tower_job_id):
 @login_required
 def job_callbacks(tower_job_id: int):
     """Renders the job callbacks page for the given job ID."""
+    initial_job_state = get_backend_repository().get_job_status(tower_job_id)["state"]
+
     return render_template(
         "job_callbacks.html",
         tower_job_id=tower_job_id,
+        initial_job_state=initial_job_state,
         tower_job_template_name=get_backend_repository().get_job_template_name_by_job_id(tower_job_id),
     )
 
@@ -98,9 +104,12 @@ def job_callbacks_data(tower_job_id: int):
 @login_required
 def job_hosts_overview(tower_job_id: int):
     """Renders the job overview page for the given job ID."""
+    initial_job_state = get_backend_repository().get_job_status(tower_job_id)["state"]
+
     return render_template(
         "job_overview.html",
         tower_job_id=tower_job_id,
+        initial_job_state=initial_job_state,
         tower_job_template_name=get_backend_repository().get_job_template_name_by_job_id(tower_job_id),
     )
 
@@ -152,9 +161,12 @@ def job_infos(tower_job_id: int):
     awx_template_link = current_app.config["AWX_BASE_URL"] + "/#/templates/job_template/" + str(tower_job_template_id)
     awx_job_link = current_app.config["AWX_BASE_URL"] + "/#/jobs/playbook/" + str(tower_job_id)
 
+    initial_job_state = get_backend_repository().get_job_status(tower_job_id)["state"]
+
     return render_template(
         "job_infos.html",
         tower_job_id=tower_job_id,
+        initial_job_state=initial_job_state,
         tower_job_template_name=get_backend_repository().get_job_template_name_by_job_id(tower_job_id),
         tower_job_template_id=tower_job_template_id,
         tower_user_name=tower_user_name,

@@ -164,6 +164,38 @@ class TestApi:
         assert len(resp) == 1
         assert len(list(resp.values())[0]) == 1
 
+    def test_compliance_host_authorisation(self, client):
+        r = client.get(endpoint_uri + "/compliance/hosts/win999.example.com", headers=AUTH_HEADERS)
+        assert r.status_code in (200, 404)
+
+        r = client.get(endpoint_uri + "/compliance/hosts/win999.example.com", headers=RO_AUTH_HEADERS)
+        assert r.status_code in (200, 404)
+
+        r = client.get(endpoint_uri + "/compliance/hosts/win999.example.com", headers=INVALID_AUTH_HEADERS)
+        assert r.status_code == 401
+
+    def test_compliance_host(self, client):
+        r = client.post(endpoint_uri + "/jobs", json=generic_job_data)
+        assert r.status_code == 201, r.text
+
+        r = client.post(endpoint_uri + "/stats", json=generic_stats_data)
+        assert r.status_code == 201, r.text
+
+        r = client.get(endpoint_uri + "/compliance/hosts/win999.example.com", headers=AUTH_HEADERS)
+        assert r.status_code == 200, r.text
+        assert r.json["ansible_host"] == "win999.example.com"
+        assert r.json["compliant"] is True
+        assert r.json["noncompliant"] == []
+
+        r = client.get(endpoint_uri + "/compliance/hosts/win443.example.com", headers=AUTH_HEADERS)
+        assert r.status_code == 200, r.text
+        assert r.json["ansible_host"] == "win443.example.com"
+        assert r.json["compliant"] is False
+        assert len(r.json["noncompliant"]) == 1
+
+        r = client.get(endpoint_uri + "/compliance/hosts/unknown.example.com", headers=AUTH_HEADERS)
+        assert r.status_code == 404
+
     def test_post_jobs_multiple(self, client):
         # create x templates with y jobs each
         count_templates = 10

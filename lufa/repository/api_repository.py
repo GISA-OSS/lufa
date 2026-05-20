@@ -69,6 +69,12 @@ class JobTemplateComplianceStates(TypedDict):
     organisation: str
 
 
+class HostComplianceState(TypedDict):
+    ansible_host: str
+    compliant: bool
+    noncompliant: list[JobTemplateComplianceStates]
+
+
 class FullJob(TypedDict):
     tower_job_id: int
     tower_job_template_id: int
@@ -120,6 +126,11 @@ class ApiRepository(ABC):
             'oranisation': str_tower
         }]}
         """
+        pass
+
+    @abstractmethod
+    def get_host_compliance_state(self, ansible_host: str) -> HostComplianceState:
+        """Returns compliance state to the given host."""
         pass
 
     @abstractmethod
@@ -211,6 +222,33 @@ class SqliteApiRepository(ApiRepository):
         for line in cursor.fetchall():
             ret[line["ansible_host"]] = json.loads(line["noncompliant"])
         return ret
+
+    def get_host_compliance_state(self, ansible_host: str) -> HostComplianceState:
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT
+                c.ansible_host,
+                c.compliant,
+                n.noncompliant
+            FROM v_host_compliance c
+                     LEFT JOIN v_host_noncompliance n
+                               ON c.ansible_host = n.ansible_host
+            WHERE c.ansible_host = ?
+            """,
+            (ansible_host,),
+        )
+        line = cursor.fetchone()
+
+        if line is None:
+            raise ResourceNotFoundError(f"Host {ansible_host} not found")
+
+        return HostComplianceState(
+            ansible_host=line["ansible_host"],
+            compliant=bool(line["compliant"]),
+            noncompliant=json.loads(line["noncompliant"]) if line["noncompliant"] else [],
+        )
 
     def add_stats(self, tower_job_id: int, stats: list[TowerJobStats]) -> None:
         conn: sqlite3.Connection = self.db_manager.get_db_connection()
@@ -767,6 +805,33 @@ class PostgresApiRepository(ApiRepository):
         for line in cursor.fetchall():
             ret[line["ansible_host"]] = line["noncompliant"]
         return ret
+
+    def get_host_compliance_state(self, ansible_host: str) -> HostComplianceState:
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT
+                c.ansible_host,
+                c.compliant,
+                n.noncompliant
+            FROM v_host_compliance c
+                     LEFT JOIN v_host_noncompliance n
+                               ON c.ansible_host = n.ansible_host
+            WHERE c.ansible_host = %s
+            """,
+            (ansible_host,),
+        )
+        line = cursor.fetchone()
+
+        if line is None:
+            raise ResourceNotFoundError(f"Host {ansible_host} not found")
+
+        return HostComplianceState(
+            ansible_host=line["ansible_host"],
+            compliant=bool(line["compliant"]),
+            noncompliant=line["noncompliant"] or [],
+        )
 
     def job_exists(self, tower_job_id) -> bool:
         conn = self.db_manager.get_db_connection()

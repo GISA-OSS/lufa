@@ -173,7 +173,7 @@ def tasks_post(data):
         return jsonify({"error": "task already exists"}), 409
 
     repository.add_task(data["ansible_uuid"], data["tower_job_id"], data["task_name"])
-    current_app.logger.info("inserted task: %s", data["ansible_uuid"])
+    current_app.logger.debug("inserted task: %s", data["ansible_uuid"])
 
     return jsonify({"ok": "yes"}), 201
 

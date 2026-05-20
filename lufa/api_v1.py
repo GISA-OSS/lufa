@@ -50,7 +50,7 @@ def pass_safe_exceptions[**P, R](f: Callable[P, R]):
         "tower_schedule_id": int,
         "tower_schedule_name": str,
         "tower_workflow_job_id": int,
-        "tower_workflow_job_name": int,
+        "tower_workflow_job_name": str,
         "compliance_interval": int,
         "template_infos": str,
         "playbook_path": str,

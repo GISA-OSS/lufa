@@ -9,6 +9,7 @@ from lufa.auth import ro_token_required, sanitize, token_required, with_json_dat
 from lufa.decorators import debug_only
 from lufa.provider import get_api_repository, get_awx_client, get_database_manager
 from lufa.repository.api_repository import JobExport, LufaKeyError
+from lufa.repository.backend_repository import ResourceNotFoundError
 
 MALFORMED_JSON = {"error": "Malformed json"}
 
@@ -136,6 +137,21 @@ def compliance():
     resp = repository.get_all_noncompliant_hosts()
 
     return jsonify(resp)
+
+
+@bp.route("/compliance/hosts/<string:ansible_host>", methods=["GET"])
+@ro_token_required
+@pass_safe_exceptions
+def compliance_hosts(ansible_host):
+    """
+    Returns compliance state to the given host.
+    """
+    repository = get_api_repository()
+
+    try:
+        return jsonify(repository.get_host_compliance_state(ansible_host))
+    except ResourceNotFoundError:
+        return jsonify({"error": f"Host {ansible_host} not found"}), 404
 
 
 @bp.route("/tasks", methods=["POST"])

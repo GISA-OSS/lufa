@@ -108,6 +108,23 @@ class TestApi:
         r = client.post(endpoint_uri + "/jobs", json=generic_job_data)
         assert r.status_code == 409
 
+    def test_post_job_with_workflow_name(self, client):
+        job_data = generic_job_data | {
+            "tower_job_id": 2,
+            "tower_workflow_job_id": 42,
+            "tower_workflow_job_name": "Import Workflow",
+        }
+
+        r = client.post(endpoint_uri + "/jobs", json=job_data)
+        assert r.status_code == 201, r.text
+
+        job_res = client.get("/data/jobs")
+        assert job_res.status_code != 403
+        job = [j for j in job_res.json["jobs_table"]["data"] if j["tower_job_id"] == job_data["tower_job_id"]][0]
+
+        assert job["tower_workflow_job_id"] == job_data["tower_workflow_job_id"]
+        assert job["tower_workflow_job_name"] == job_data["tower_workflow_job_name"]
+
     def test_patch_job(self, client):
         """Create a Job and set end_time"""
 

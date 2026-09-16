@@ -203,6 +203,11 @@ class ApiRepository(ABC):
         """
         pass
 
+    @abstractmethod
+    def job_cleanup(self, keep_days: int = 89):
+        """Cleanup jobs older than provided days."""
+        pass
+
 
 class SqliteApiRepository(ApiRepository):
     def __init__(self, db_manager: DatabaseManager) -> None:
@@ -788,6 +793,16 @@ class SqliteApiRepository(ApiRepository):
             conn.rollback()
             raise ValueError(f"Failed to import job: {str(e)}") from e
 
+    def job_cleanup(self, keep_days: int = 89):
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+                DELETE FROM jobs WHERE start_time < datetime(current_timestamp, concat('-', ?, ' DAYS'));
+            """,
+            (keep_days,),
+        )
+
 
 class PostgresApiRepository(ApiRepository):
     def __init__(self, db_manager: DatabaseManager):
@@ -1352,3 +1367,13 @@ class PostgresApiRepository(ApiRepository):
         except Exception as e:
             conn.rollback()
             raise ValueError(f"Failed to import job: {str(e)}") from e
+
+    def job_cleanup(self, keep_days: int = 89):
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+                DELETE FROM jobs WHERE start_time < now() - INTERVAL '%s DAYS';
+            """,
+            (keep_days,),
+        )

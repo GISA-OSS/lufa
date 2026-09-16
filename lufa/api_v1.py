@@ -325,3 +325,11 @@ def db_now():
 
     resp = {"db_now": now}
     return jsonify(resp)
+
+
+@bp.route("/job_cleanup", methods=["POST"])
+@token_required
+def job_cleanup():
+    """Cleanup jobs older than 89 days."""
+    repository = get_api_repository()
+    repository.job_cleanup(89)

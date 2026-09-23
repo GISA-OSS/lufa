@@ -52,3 +52,7 @@
 #LOGIN_USERNAME_LABEL = "Username"
 #LOGIN_PASSWORD_LABEL = "Password"
 #LOGIN_SUBMIT_LABEL = "Sign in"
+
+### Metrics (optional)
+# Enable Prometheus metrics endpoint at /metrics
+#ENABLE_METRICS_ENDPOINT=True

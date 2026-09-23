@@ -115,6 +115,13 @@ def create_app(test_config=None):
     csrf.exempt(api_v1.bp)
     app.register_blueprint(frontend.bp)
 
+    # Prometheus metrics
+    if app.config.get("ENABLE_METRICS_ENDPOINT", False):
+        from prometheus_flask_exporter import PrometheusMetrics
+
+        PrometheusMetrics(app, prefix="lufa")
+        app.logger.info("Prometheus metrics enabled at /metrics")
+
     login_manager = LoginManager(app)
     if str(app.config.get("AUTH")).upper().startswith("LOCAL"):
         user_manager = UserManager(app)

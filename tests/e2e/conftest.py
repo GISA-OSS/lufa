@@ -66,6 +66,7 @@ def app_postgres(request):
             "DB_DATABASE": os.environ.get("POSTGRES_DB"),
             "DB_USER": os.environ.get("POSTGRES_USER"),
             "DB_PASSWORD": os.environ.get("POSTGRES_PASSWORD"),
+            "DB_MAX_POOL_CONNECTIONS": 4,
             "AUTH_USER": AUTH_USER,
             "AUTH_PASSWORD": AUTH_PASS,
             "AUTH": "LOCAL",

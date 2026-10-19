@@ -1,9 +1,9 @@
 import logging
 import os
 import subprocess
+import tomllib
 from pathlib import Path
 
-import tomllib
 from flask import current_app
 
 

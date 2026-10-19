@@ -1,3 +1,4 @@
+import atexit
 import logging
 from importlib.resources import files
 from typing import Literal, Required, TypedDict, cast
@@ -14,6 +15,10 @@ from lufa.repository.user_repository import PostgresUserRepository, SqliteUserRe
 
 logger = logging.getLogger(__name__)
 
+# Reference to the current process's Postgres connection-pool manager,
+# so the pool can be closed via atexit when the process ends.
+_postgres_db_manager: PostgresDatabaseManager | None = None
+
 
 class PostgresConfig(TypedDict, total=True):
     DB_TYPE: Literal["POSTGRES"]
@@ -21,6 +26,7 @@ class PostgresConfig(TypedDict, total=True):
     DB_DATABASE: str
     DB_USER: str
     DB_PASSWORD: str
+    DB_MAX_POOL_CONNECTIONS: int
 
 
 class SqliteConfig(TypedDict, total=True):
@@ -41,6 +47,7 @@ class AppConfig(TypedDict, total=True):
     DB_DATABASE: str
     DB_USER: str
     DB_PASSWORD: str
+    DB_MAX_POOL_CONNECTIONS: int
     # Logging
     LOG_LEVEL: str
     LOG_FILE_PATH: str
@@ -71,6 +78,7 @@ def _create_database_manager(app_config: AppConfig) -> DatabaseManager:
     Part of get_database_manager that doesn't require flask global state.
     Separated from get_database_manager for integration testing purpuses.
     """
+    global _postgres_db_manager
     db_type = app_config["DB_TYPE"].upper()
     db_manager: DatabaseManager
     if db_type == "POSTGRES":
@@ -81,7 +89,9 @@ def _create_database_manager(app_config: AppConfig) -> DatabaseManager:
             user=app_config["DB_USER"],
             password=app_config["DB_PASSWORD"],
             init_script=init_script,  # makes result rows dicts
+            max_pool_connections=app_config["DB_MAX_POOL_CONNECTIONS"],
         )
+        _postgres_db_manager = db_manager
     elif db_type == "SQLITE":
         db_name = app_config["DB_DATABASE"]
         if "." not in db_name:
@@ -161,6 +171,13 @@ def close_db_conn(e=None):
     get_database_manager().close_db()
 
 
+def _close_db_pools_on_exit():
+    """Close the Postgres connection pool at process end (Postgres only)."""
+    if _postgres_db_manager is not None:
+        _postgres_db_manager.shutdown()
+
+
 def init_app(app):
     app.teardown_appcontext(close_db_conn)  # close DB after request
     app.cli.add_command(init_db_command)
+    atexit.register(_close_db_pools_on_exit)  # close db pool on process end

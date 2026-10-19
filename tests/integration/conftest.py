@@ -117,6 +117,7 @@ def db_config(mark_db_backend: str) -> Iterable[DbConfig]:
                 DB_DATABASE=db_database,
                 DB_USER=db_user,
                 DB_PASSWORD=db_password,
+                DB_MAX_POOL_CONNECTIONS=4,
             )
 
         case _:
@@ -159,6 +160,7 @@ def empty_db(mark_db_backend: str, db_config: DbConfig) -> Iterable[DatabaseMana
                 database=postgres_config["DB_DATABASE"],
                 password=postgres_config["DB_PASSWORD"],
                 init_script=str(files("lufa").joinpath("schema.sql")),
+                max_pool_connections=postgres_config["DB_MAX_POOL_CONNECTIONS"],
             )
             with open(
                 str(files("tests").joinpath("integration").joinpath("lufa").joinpath("drop_tables.sql")), "r"

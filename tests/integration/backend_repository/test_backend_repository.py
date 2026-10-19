@@ -202,9 +202,7 @@ class TestBackendRepository:
             "ansible_limit": "ans Limit",
             "end_time": None,
             "playbook_path": None,
-            "start_time": ret[
-                "start_time"
-            ],  # start time wird nicht betrachtet # pyright: ignore[reportTypedDictNotRequiredAccess]
+            "start_time": ret["start_time"],  # start time wird nicht betrachtet # pyright: ignore[reportTypedDictNotRequiredAccess]
         }
         assert ret == d
 

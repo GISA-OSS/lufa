@@ -8,6 +8,7 @@
 #DB_TYPE="POSTGRES"
 #DB_HOST="localhost"
 #DB_DATABASE="lufa"
+#DB_MAX_POOL_CONNECTIONS=4
 #DB_USER="lufa"
 # DB_PASSWORD="" in instance/secrets.py
 

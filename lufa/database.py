@@ -106,15 +106,32 @@ def dict_factory(cursor, row):
     return d
 
 
+class _PooledConnection:
+    """Wraps a pooled connection so `with get_db_connection()` releases it back
+    to the pool on exit, while delegating all attribute access to the wrapped
+    connection."""
+
+    def __init__(self, conn: Any, release):
+        self._conn = conn
+        self._release = release
+
+    def __enter__(self):
+        return self._conn
+
+    def __exit__(self, *args):
+        self._release(self._conn)
+        return False
+
+    def __getattr__(self, name: str):
+        return getattr(self._conn, name)
+
+
 class PostgresDatabaseManager(DatabaseManager):
     def get_db_now(self) -> str:
-        conn = self.get_db_connection()
-        try:
+        with self.get_db_connection() as conn:
             cur = conn.cursor()
             cur.execute("SELECT current_timestamp as now;")
             return cur.fetchone()["now"].strftime(r"%Y-%m-%d %H:%M")
-        finally:
-            self._release(conn)
 
     def __init__(self, host: str, database: str, user: str, password: str, init_script: str, max_pool_connections: int):
         self.host = host
@@ -154,30 +171,24 @@ class PostgresDatabaseManager(DatabaseManager):
         self._get_pool().putconn(conn)
 
     def is_not_empty(self) -> bool:
-        conn = self.get_db_connection()
-        try:
+        with self.get_db_connection() as conn:
             cur = conn.cursor()
             cur.execute("SELECT * FROM information_schema.tables WHERE table_schema='public';")
             rows = cur.fetchall().__len__()
             return rows > 0  # no tables
-        finally:
-            self._release(conn)
 
     def init_db(self) -> None:
-        conn = self.get_db_connection()
-        try:
+        with self.get_db_connection() as conn:
             with open(self.init_script, "r") as f:
                 conn.cursor().execute(f.read())
                 conn.commit()
-        finally:
-            self._release(conn)
 
     def get_db_connection(self) -> Any:
         conn = getattr(self._local, "conn", None)
         if conn is None:
             conn = self._get_pool().getconn()
             self._local.conn = conn
-        return conn
+        return _PooledConnection(conn, self._release)
 
     def close_db(self) -> None:
         # return the connection to the pool (do not hard-close it)

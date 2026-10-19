@@ -1,0 +1,82 @@
+{% extends "basic_job_combined.html" %}
+
+{% block title %}Jobs Combined – Recap{% endblock %}
+
+{% block combined_main %}
+<h2>Play Recap</h2>
+<table id="stats" class="display table table-sm">
+	<thead>
+		<tr>
+			<th scope="col">Job</th>
+			<th scope="col">Host</th>
+			<th scope="col">ok</th>
+			<th scope="col">changed</th>
+			<th scope="col">unreachable</th>
+			<th scope="col">failed</th>
+			<th scope="col">skipped</th>
+			<th scope="col">rescued</th>
+			<th scope="col">ignored</th>
+		</tr>
+	</thead>
+</table>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script type="text/javascript" src="{{ url_for('static', filename='limit-button.js') }}"></script>
+<script nonce="{{crp_nonce}}">
+	$(document).ready(function () {
+		let JOB_IDS = {{ job_ids | tojson }};
+		let stats_table = $('#stats').DataTable({
+			ajax: {
+				url: '/data/jobs/combined/recap?ids=' + JOB_IDS.join(','),
+				dataSrc: 'stats_table.data'
+			},
+			columns: [
+				{
+					title: "Job",
+					data: "tower_job_id",
+					render: function (data, type, row, meta) {
+						return '<a href="/jobs/' + data + '">' + data + '</a>';
+					}
+				},
+				{
+					title: "Host",
+					data: "ansible_host",
+					render: function (data, type, row, meta) {
+						return '<a href="/hosts/' + data + '">' + data + '</a>';
+					}
+				},
+				{ title: "ok", data: "ok" },
+				{ title: "changed", data: "changed" },
+				{ title: "unreachable", data: "unreachable" },
+				{ title: "failed", data: "failed" },
+				{ title: "skipped", data: "skipped" },
+				{ title: "rescued", data: "rescued" },
+				{ title: "ignored", data: "ignored" }
+			],
+			createdRow: function(row, data, dataIndex, cells) {
+				if (data["unreachable"] || data["failed"]) {
+					$(row).addClass("table-danger");
+				} else if (data["changed"]) {
+					$(row).addClass("table-warning");
+				} else {
+					$(row).addClass("table-success");
+				}
+			},
+			dom: 'QBfrtip',
+			buttons: [
+				'copy',
+				'excel',
+				'pdf',
+				'colvis',
+				getHostLimitButtonConfig()
+			],
+			order: [[0, "asc"], [1, "asc"]],
+			pageLength: 100
+		});
+
+		globalThis.refresher.setUpdaterDataTablesXhr(stats_table);
+	});
+</script>
+{% endblock %}

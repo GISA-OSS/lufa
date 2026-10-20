@@ -1,7 +1,7 @@
 import atexit
 import logging
 from importlib.resources import files
-from typing import Literal, Required, TypedDict, cast
+from typing import Literal, NotRequired, Required, TypedDict, cast
 
 import click
 from flask import current_app, g
@@ -27,6 +27,7 @@ class PostgresConfig(TypedDict, total=True):
     DB_USER: str
     DB_PASSWORD: str
     DB_MAX_POOL_CONNECTIONS: int
+    DB_PORT: NotRequired[int]
 
 
 class SqliteConfig(TypedDict, total=True):
@@ -48,6 +49,7 @@ class AppConfig(TypedDict, total=True):
     DB_USER: str
     DB_PASSWORD: str
     DB_MAX_POOL_CONNECTIONS: int
+    DB_PORT: int
     # Logging
     LOG_LEVEL: str
     LOG_FILE_PATH: str
@@ -85,6 +87,7 @@ def _create_database_manager(app_config: AppConfig) -> DatabaseManager:
         init_script = str(files("lufa").joinpath("schema.sql"))
         db_manager = PostgresDatabaseManager(
             host=app_config["DB_HOST"],
+            port=app_config.get("DB_PORT", 5432),
             database=app_config["DB_DATABASE"],
             user=app_config["DB_USER"],
             password=app_config["DB_PASSWORD"],

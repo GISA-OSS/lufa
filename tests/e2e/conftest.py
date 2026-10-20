@@ -63,6 +63,7 @@ def app_postgres(request):
             "WTF_CSRF_ENABLED": False,
             "DB_TYPE": "POSTGRES",
             "DB_HOST": os.environ.get("POSTGRES_HOST"),
+            "DB_PORT": int(os.environ.get("POSTGRES_PORT", 5432)),
             "DB_DATABASE": os.environ.get("POSTGRES_DB"),
             "DB_USER": os.environ.get("POSTGRES_USER"),
             "DB_PASSWORD": os.environ.get("POSTGRES_PASSWORD"),

@@ -7,6 +7,7 @@
 # Postgres
 #DB_TYPE="POSTGRES"
 #DB_HOST="localhost"
+#DB_PORT=5432
 #DB_DATABASE="lufa"
 #DB_MAX_POOL_CONNECTIONS=4
 #DB_USER="lufa"

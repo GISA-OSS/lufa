@@ -133,8 +133,11 @@ class PostgresDatabaseManager(DatabaseManager):
             cur.execute("SELECT current_timestamp as now;")
             return cur.fetchone()["now"].strftime(r"%Y-%m-%d %H:%M")
 
-    def __init__(self, host: str, database: str, user: str, password: str, init_script: str, max_pool_connections: int):
+    def __init__(
+        self, host: str, port: int, database: str, user: str, password: str, init_script: str, max_pool_connections: int
+    ):
         self.host = host
+        self.port = port
         self.database = database
         self.user = user
         self.password = password
@@ -156,6 +159,7 @@ class PostgresDatabaseManager(DatabaseManager):
                         minconn=1,
                         maxconn=self.max_pool_connections,
                         host=self.host,
+                        port=self.port,
                         database=self.database,
                         user=self.user,
                         password=self.password,

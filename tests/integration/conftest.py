@@ -108,12 +108,14 @@ def db_config(mark_db_backend: str) -> Iterable[DbConfig]:
             db_database = os.environ["POSTGRES_DB"]
             db_user = os.environ["POSTGRES_USER"]
             db_password = os.environ["POSTGRES_PASSWORD"]
+            db_port = int(os.environ.get("POSTGRES_PORT", 5432))
             assert db_database is None or "test" in db_database or db_user is None or "test" in db_user, (
                 f'db_user or db_database must contain "test", to prevent running on production DB: {db_user}@{db_database}'
             )
             yield PostgresConfig(
                 DB_TYPE="POSTGRES",
                 DB_HOST=db_host,
+                DB_PORT=db_port,
                 DB_DATABASE=db_database,
                 DB_USER=db_user,
                 DB_PASSWORD=db_password,
@@ -156,6 +158,7 @@ def empty_db(mark_db_backend: str, db_config: DbConfig) -> Iterable[DatabaseMana
             postgres_config = cast(PostgresConfig, db_config)
             postgres = PostgresDatabaseManager(
                 host=postgres_config["DB_HOST"],
+                port=postgres_config.get("DB_PORT", 5432),
                 user=postgres_config["DB_USER"],
                 database=postgres_config["DB_DATABASE"],
                 password=postgres_config["DB_PASSWORD"],

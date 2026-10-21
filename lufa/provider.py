@@ -170,6 +170,14 @@ def init_db_command():
         click.echo("aborted")
 
 
+@click.command("job-cleanup")
+@with_appcontext
+def job_cleanup_command():
+    """Cleanup jobs older than 89 days."""
+    get_api_repository().job_cleanup(89)
+    click.echo("Jobs older than 89 days cleaned up.")
+
+
 def close_db_conn(e=None):
     get_database_manager().close_db()
 
@@ -183,4 +191,5 @@ def _close_db_pools_on_exit():
 def init_app(app):
     app.teardown_appcontext(close_db_conn)  # close DB after request
     app.cli.add_command(init_db_command)
+    app.cli.add_command(job_cleanup_command)
     atexit.register(_close_db_pools_on_exit)  # close db pool on process end

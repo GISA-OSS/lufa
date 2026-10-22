@@ -1050,7 +1050,7 @@ class PostgresApiRepository(ApiRepository):
                         stat["ignored"],
                     ),
                 )
-            cursor.execute("REFRESH MATERIALIZED VIEW v_host_templates;")
+            cursor.execute("SELECT refresh_v_host_templates();")
         except ForeignKeyViolation as ex:
             raise LufaKeyError("tower_job_id", tower_job_id) from ex
 
@@ -1358,7 +1358,7 @@ class PostgresApiRepository(ApiRepository):
                     )
 
             # refresh materialized view for compliance calculations
-            cursor.execute("REFRESH MATERIALIZED VIEW v_host_templates;")
+            cursor.execute("SELECT refresh_v_host_templates();")
 
             conn.commit()
 

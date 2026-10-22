@@ -4,6 +4,7 @@ DROP VIEW IF EXISTS v_host_templates_ordered;
 DROP VIEW IF EXISTS v_template_compliance;
 DROP VIEW IF EXISTS v_host_compliance;
 DROP VIEW IF EXISTS v_host_template_compliance;
+DROP FUNCTION IF EXISTS refresh_v_host_templates();
 DROP INDEX IF EXISTS v_host_templates_index;
 DROP MATERIALIZED VIEW IF EXISTS v_host_templates;
 DROP VIEW IF EXISTS v_job_status;
@@ -229,4 +230,28 @@ CREATE VIEW v_template_hosts_summary AS
 	    start_time,
 	    tower_job_id,
 		tower_job_template_id
-	FROM v_host_templates_ordered
+	FROM v_host_templates_ordered;
+
+CREATE FUNCTION refresh_v_host_templates()
+RETURNS void
+LANGUAGE plpgsql
+AS $$
+BEGIN
+    IF pg_try_advisory_lock(hashtext('v_host_templates_refresh')) THEN
+        BEGIN
+            REFRESH MATERIALIZED VIEW v_host_templates;
+
+            PERFORM pg_advisory_unlock(
+                hashtext('v_host_templates_refresh')
+            );
+
+        EXCEPTION
+            WHEN OTHERS THEN
+                PERFORM pg_advisory_unlock(
+                    hashtext('v_host_templates_refresh')
+                );
+                RAISE;
+        END;
+    END IF;
+END;
+$$;

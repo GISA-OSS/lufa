@@ -134,7 +134,7 @@ CREATE VIEW v_job_status AS
 	FROM jobs;
 
 CREATE MATERIALIZED VIEW v_host_templates AS
-    SELECT DISTINCT
+    SELECT
 		ansible_host,
         job_templates.tower_job_template_id,
         job_templates.tower_job_template_name,

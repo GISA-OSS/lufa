@@ -9,9 +9,31 @@ from flask_login import login_required
 from lufa import render_template
 from lufa.decorators import debug_only
 from lufa.provider import get_backend_repository
-from lufa.repository.backend_repository import ResourceNotFoundError
+from lufa.repository.backend_repository import BadRequestError, ResourceNotFoundError
 
 bp = Blueprint("frontend", __name__, url_prefix="")
+
+DEFAULT_MAX_COMBINED_JOBS = 20
+
+
+def _parse_job_ids() -> list[int]:
+    """Parse the comma-separated 'ids' query param into a capped list of job ids."""
+    max_combined_jobs = current_app.config.get("MAX_COMBINED_JOBS", DEFAULT_MAX_COMBINED_JOBS)
+    raw = request.args.get("ids", "")
+    job_ids: list[int] = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            job_ids.append(int(part))
+        except ValueError:
+            continue
+    if len(job_ids) > max_combined_jobs:
+        raise BadRequestError(f"Too many jobs selected (max {max_combined_jobs})")
+    if not job_ids:
+        raise BadRequestError("No job ids provided")
+    return job_ids
 
 
 @bp.errorhandler(ResourceNotFoundError)
@@ -19,6 +41,13 @@ def handle_resource_not_found(e: ResourceNotFoundError) -> Tuple[str, int]:
     """Handles ResourceNotFoundError by rendering an error page with appropriate title and message."""
 
     return render_template("error.html", error_title="Resource not found", error_message=e.msg), 404
+
+
+@bp.errorhandler(BadRequestError)
+def handle_bad_request(e: BadRequestError) -> Tuple[str, int]:
+    """Handles BadRequestError by rendering an error page with appropriate title and message."""
+
+    return render_template("error.html", error_title="Bad request", error_message=e.msg), 400
 
 
 @bp.route("/", methods=["GET"])
@@ -133,6 +162,79 @@ def job_status_data(tower_job_id: int):
     """Returns the data for the job status page in json format."""
     data = {"state": get_backend_repository().get_job_status(tower_job_id)}
 
+    return jsonify(data)
+
+
+@bp.route("/jobs/combined", methods=["GET"])
+@bp.route("/jobs/combined/overview", methods=["GET"])
+@login_required
+def job_combined_overview():
+    """Renders the multi-job combined overview page."""
+    job_ids = _parse_job_ids()
+    repo = get_backend_repository()
+    return render_template(
+        "job_combined_overview.html",
+        job_ids=job_ids,
+        jobs_by_id=repo.get_jobs_by_ids(job_ids),
+    )
+
+
+@bp.route("/data/jobs/combined/overview", methods=["GET"])
+@login_required
+def job_combined_overview_data():
+    """Returns the data for the multi-job combined overview page in json format."""
+    job_ids = _parse_job_ids()
+    repo = get_backend_repository()
+    data = {
+        "hosts_table": {"data": repo.get_last_host_callback_by_ids(job_ids)},
+        "host_states": repo.get_last_host_callback_count_by_ids(job_ids),
+    }
+    return jsonify(data)
+
+
+@bp.route("/jobs/combined/recap", methods=["GET"])
+@login_required
+def job_combined_recap():
+    """Renders the multi-job combined recap page."""
+    job_ids = _parse_job_ids()
+    return render_template(
+        "job_combined_recap.html",
+        job_ids=job_ids,
+        jobs_by_id=get_backend_repository().get_jobs_by_ids(job_ids),
+    )
+
+
+@bp.route("/data/jobs/combined/recap", methods=["GET"])
+@login_required
+def job_combined_recap_data():
+    """Returns the data for the multi-job combined recap page in json format."""
+    job_ids = _parse_job_ids()
+    data = {"stats_table": {"data": get_backend_repository().get_job_stats_by_ids(job_ids)}}
+    return jsonify(data)
+
+
+@bp.route("/jobs/combined/callbacks", methods=["GET"])
+@login_required
+def job_combined_callbacks():
+    """Renders the multi-job combined callbacks page."""
+    job_ids = _parse_job_ids()
+    return render_template(
+        "job_combined_callbacks.html",
+        job_ids=job_ids,
+        jobs_by_id=get_backend_repository().get_jobs_by_ids(job_ids),
+    )
+
+
+@bp.route("/data/jobs/combined/callbacks", methods=["GET"])
+@login_required
+def job_combined_callbacks_data():
+    """Returns the data for the multi-job combined callbacks page in json format."""
+    job_ids = _parse_job_ids()
+    repo = get_backend_repository()
+    data = {
+        "callbacks_table": {"data": repo.get_job_task_callbacks_by_ids(job_ids)},
+        "task_states": repo.get_job_task_callback_count_by_ids(job_ids),
+    }
     return jsonify(data)
 
 

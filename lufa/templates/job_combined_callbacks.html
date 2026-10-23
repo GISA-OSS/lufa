@@ -1,0 +1,149 @@
+{% extends "basic_job_combined.html" %}
+
+{% block title %}Jobs Combined – Callbacks{% endblock %}
+
+{% block combined_main %}
+<table class="table table-bordered table-sm w-auto">
+	<thead>
+		<tr>
+			<th scope="col">started</th>
+			<th scope="col">ok</th>
+			<th scope="col">changed</th>
+			<th scope="col">unreachable</th>
+			<th scope="col">failed</th>
+			<th scope="col">skipped</th>
+			<th scope="col">rescued</th>
+			<th scope="col">ignored</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td id="hosts_started"></td>
+			<td class="table-success" id="hosts_ok" tabindex=0 data-table="#callbacks" data-label="Status" data-field="state" data-value="ok"></td>
+			<td class="table-warning" id="hosts_changed" tabindex=0 data-table="#callbacks" data-label="Status" data-field="state" data-value="changed"></td>
+			<td class="table-danger" id="hosts_unreachable" tabindex=0 data-table="#callbacks" data-label="Status" data-field="state" data-value="unreachable"></td>
+			<td class="table-danger" id="hosts_failed" tabindex=0 data-table="#callbacks" data-label="Status" data-field="state" data-value="failed"></td>
+			<td class="table-info" id="hosts_skipped" tabindex=0 data-table="#callbacks" data-label="Status" data-field="state" data-value="skipped"></td>
+			<td class="table-primary" id="hosts_rescued" tabindex=0 data-table="#callbacks" data-label="Status" data-field="state" data-value="rescued"></td>
+			<td class="table-secondary" id="hosts_ignored" tabindex=0 data-table="#callbacks" data-label="Status" data-field="state" data-value="ignored"></td>
+		</tr>
+	</tbody>
+</table>
+
+<table id="callbacks" class="display table table-sm">
+	<thead>
+		<tr>
+			<th scope="col">Job</th>
+			<th scope="col">ID</th>
+			<th scope="col">Task</th>
+			<th scope="col">Host</th>
+			<th scope="col">Status</th>
+			<th scope="col">Time</th>
+		</tr>
+	</thead>
+</table>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script type="text/javascript" src="{{ url_for('static', filename='customize-search-builder.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='colorize-table-cell.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='filter-sharing.js') }}"></script>
+<script nonce="{{crp_nonce}}">
+    // Trigger applySearchBuilder when a status cell is clicked
+    document.querySelectorAll('td[data-field][data-value]').forEach(td => {
+        td.addEventListener('click', function () {
+            applySearchBuilder(this.dataset.table, this, this.dataset.label, this.dataset.field, this.dataset.value);
+        })
+    })
+
+	$(document).ready(function () {
+		let JOB_IDS = {{ job_ids | tojson }};
+		$.fn.dataTable.luxon("yyyy-MM-dd HH:mm:ss");
+		let callbacks_table = $('#callbacks').DataTable({
+			ajax: {
+				url: '/data/jobs/combined/callbacks?ids=' + JOB_IDS.join(','),
+				dataSrc: 'callbacks_table.data'
+			},
+			columns: [
+				{
+					title: "Job",
+					data: "tower_job_id",
+					render: function (data, type, row, meta) {
+						return '<a href="/jobs/' + data + '">' + data + '</a>';
+					}
+				},
+				{
+					title: "ID",
+					data: "id",
+					render: function (data, type, row, meta) {
+						return '<a href="/task_callbacks/' + data + '">' + data + '</a>';
+					}
+				},
+				{
+					title: "Task",
+					data: "task_name",
+				},
+				{
+					title: "Host",
+					data: "ansible_host",
+					render: function (data, type, row, meta) {
+						return '<a href="/hosts/' + data + '">' + data + '</a>';
+					}
+				},
+				{
+					title: "Status",
+					data: "state",
+				},
+				{
+					title: "Time",
+					data: "timestamp",
+					type: "luxon-yyyy-MM-dd HH:mm:ss.ms",
+					render: DataTable.render.datetime('yyyy-MM-dd HH:mm:ss')
+				}
+			],
+			createdRow: function(row, data, dataIndex, cells) {
+				colorizeTableCell(row, data["state"]);
+			},
+			dom: 'QBfrtip',
+			buttons: [
+				'copy',
+				'excel',
+				'pdf',
+				'colvis',
+				filterSharingButton()
+			],
+			order: [[0, "asc"], [5, "desc"]],
+			pageLength: 100
+		});
+
+		callbacks_table.on('xhr', function () {
+			let json = callbacks_table.ajax.json();
+			if (json === undefined) {
+				return;
+			}
+
+			// Set Values of Callback State Overview Table (summed over all jobs)
+			let states = {};
+			for (const line of json.task_states) {
+				states[line.state] = line.count;
+			}
+
+			document.getElementById("hosts_started").innerHTML     = states["started"] ?? 0;
+			document.getElementById("hosts_ok").innerHTML          = states["ok"] ?? 0;
+			document.getElementById("hosts_changed").innerHTML     = states["changed"] ?? 0;
+			document.getElementById("hosts_unreachable").innerHTML = states["unreachable"] ?? 0;
+			document.getElementById("hosts_failed").innerHTML      = states["failed"] ?? 0;
+			document.getElementById("hosts_skipped").innerHTML     = states["skipped"] ?? 0;
+			document.getElementById("hosts_rescued").innerHTML     = states["rescued"] ?? 0;
+			document.getElementById("hosts_ignored").innerHTML     = states["ignored"] ?? 0;
+		});
+
+		callbacks_table.on('init.dt', function () {
+			setFilterFromSharedURL(callbacks_table);
+		});
+
+		globalThis.refresher.setUpdaterDataTablesXhr(callbacks_table);
+	});
+</script>
+{% endblock %}

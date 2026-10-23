@@ -1,0 +1,201 @@
+{% extends "basic_job_combined.html" %}
+
+{% block title %}Jobs Combined – Overview{% endblock %}
+
+{% block combined_main %}
+<h2>Status Overview</h2>
+
+<table class="table table-bordered table-sm w-auto">
+	<thead>
+		<tr>
+			<th scope="col">started</th>
+			<th scope="col">ok</th>
+			<th scope="col">changed</th>
+			<th scope="col">unreachable</th>
+			<th scope="col">failed</th>
+			<th scope="col">skipped</th>
+			<th scope="col">rescued</th>
+			<th scope="col">ignored</th>
+		</tr>
+	</thead>
+	<tbody>
+		<tr>
+			<td id="hosts_started"></td>
+			<td class="table-success" id="hosts_ok" data-table="#hosts" data-label="Status" data-field="state" data-value="ok"></td>
+			<td class="table-warning" id="hosts_changed" tabindex=0 data-table="#hosts" data-label="Status" data-field="state" data-value="changed"></td>
+			<td class="table-danger" id="hosts_unreachable" tabindex=0 data-table="#hosts" data-label="Status" data-field="state" data-value="unreachable"></td>
+			<td class="table-danger" id="hosts_failed" tabindex=0 data-table="#hosts" data-label="Status" data-field="state" data-value="failed"></td>
+			<td class="table-info" id="hosts_skipped" tabindex=0 data-table="#hosts" data-label="Status" data-field="state" data-value="skipped"></td>
+			<td class="table-primary" id="hosts_rescued" tabindex=0 data-table="#hosts" data-label="Status" data-field="state" data-value="rescued"></td>
+			<td class="table-secondary" id="hosts_ignored" tabindex=0 data-table="#hosts" data-label="Status" data-field="state" data-value="ignored"></td>
+		</tr>
+	</tbody>
+</table>
+
+<h2>Latest Status</h2>
+<table id="hosts" class="display table table-sm">
+	<thead>
+		<tr>
+			<th scope="col">Job</th>
+			<th scope="col">Host</th>
+			<th scope="col">Task</th>
+			<th scope="col">Status</th>
+			<th scope="col">Time</th>
+			<th scope="col">Δt</th>
+			<th scope="col">Links</th>
+		</tr>
+	</thead>
+</table>
+
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script type="text/javascript" src="{{ url_for('static', filename='limit-button.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='customize-search-builder.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='colorize-table-cell.js') }}"></script>
+<script type="text/javascript" src="{{ url_for('static', filename='filter-sharing.js') }}"></script>
+<script nonce="{{crp_nonce}}">
+    // Trigger applySearchBuilder when a status cell is clicked
+    document.querySelectorAll('td[data-field][data-value]').forEach(td => {
+        td.addEventListener('click', function () {
+            applySearchBuilder(this.dataset.table, this, this.dataset.label, this.dataset.field, this.dataset.value);
+        })
+    })
+
+	$(document).ready(function () {
+		let JOB_IDS = {{ job_ids | tojson }};
+		$.fn.dataTable.luxon("yyyy-MM-dd HH:mm:ss");
+		let hosts_table = $('#hosts').DataTable({
+			ajax: {
+				url: '/data/jobs/combined/overview?ids=' + JOB_IDS.join(','),
+				dataSrc: 'hosts_table.data'
+			},
+			columns: [
+				{
+					title: "Job",
+					data: "tower_job_id",
+					render: function (data, type, row, meta) {
+						return '<a href="/jobs/' + data + '">' + data + '</a>';
+					}
+				},
+				{
+					title: "Host",
+					data: "ansible_host",
+					render: function (data, type, row, meta) {
+						return '<a href="/hosts/' + data + '">' + data + '</a>';
+					}
+				},
+				{
+					title: "Task",
+					data: "task_name",
+				},
+				{
+					title: "Status",
+					data: "state",
+				},
+				{
+					title: "Time",
+					data: "timestamp",
+					type: "luxon-yyyy-MM-dd HH:mm:ss.ms",
+					render: DataTable.render.datetime('yyyy-MM-dd HH:mm:ss')
+				},
+				{
+					title: "Δt",
+					data: "timestamp",
+					render: {
+						sort: function (data, type, row){
+							let timestamp_in_seconds = new luxon.DateTime.fromISO(data);
+							return timestamp_in_seconds.toSeconds();
+						},
+						display: function (data, type, row) {
+							let timestamp = new luxon.DateTime.fromISO(data);
+							return timestamp.toRelative();
+						}
+					}
+				},
+				{
+					title: "Links",
+					data: null,
+					orderable: false,
+					searchable: false,
+					render: function (data, type, row, meta) {
+						const letzterCallbackLink = `
+							<a
+								class="textdecorationnone"
+								title="Current Callback ${row.id}"
+								href="/task_callbacks/${row.id}"><i class="fa-regular fa-clock"></i>
+							</a>
+						`;
+						const urlHash = getURLHashFromSearchBuilder({
+				            criteria: [
+				                {
+				                    data: "Host",
+				                    origData: "ansible_host",
+				                    condition: '=',
+				                    value: [row.ansible_host]
+				                }
+				            ],
+				            logic: 'AND'
+				        });
+
+						const callbacksLink = `
+							<a
+								title="All Host Callbacks"
+								href='/jobs/combined/callbacks?ids=${JOB_IDS.join(',')}${urlHash}'><i class="fa-solid fa-list"></i></a>
+						`;
+
+						return `${letzterCallbackLink}&nbsp;${callbacksLink}`;
+					}
+				}
+			],
+			createdRow: function(row, data, dataIndex, cells) {
+				colorizeTableCell(row, data["state"]);
+			},
+			dom: 'QBfrtip',
+			searchBuilder: {
+				columns: [0, 1, 2, 3, 4]
+			},
+			buttons: [
+				'copy',
+				'excel',
+				'pdf',
+				'colvis',
+				getHostLimitButtonConfig(),
+				filterSharingButton()
+			],
+			order: [[0, "asc"], [1, "asc"]],
+			pageLength: 100
+		});
+
+		hosts_table.on('xhr', function () {
+			let json = hosts_table.ajax.json();
+			if (json === undefined) {
+				return;
+			}
+
+			// Sum the host state counts for all selected jobs into a single
+			// status overview row.
+			let statesByJob = json.host_states;
+			let totals = { started: 0, ok: 0, changed: 0, unreachable: 0, failed: 0, skipped: 0, rescued: 0, ignored: 0 };
+			for (const jobId of JOB_IDS) {
+				let states = statesByJob[jobId] || {};
+				for (const key of Object.keys(totals)) {
+					totals[key] += states[key] ?? 0;
+				}
+			}
+
+			document.getElementById("hosts_started").innerHTML     = totals["started"] ?? 0;
+			document.getElementById("hosts_ok").innerHTML          = totals["ok"] ?? 0;
+			document.getElementById("hosts_changed").innerHTML     = totals["changed"] ?? 0;
+			document.getElementById("hosts_unreachable").innerHTML = totals["unreachable"] ?? 0;
+			document.getElementById("hosts_failed").innerHTML      = totals["failed"] ?? 0;
+			document.getElementById("hosts_skipped").innerHTML     = totals["skipped"] ?? 0;
+			document.getElementById("hosts_rescued").innerHTML     = totals["rescued"] ?? 0;
+			document.getElementById("hosts_ignored").innerHTML     = totals["ignored"] ?? 0;
+		});
+
+		globalThis.refresher.setUpdaterDataTablesXhr(hosts_table);
+	});
+</script>
+{% endblock %}

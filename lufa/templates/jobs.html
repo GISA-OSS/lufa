@@ -13,7 +13,7 @@
 			<input type="number" class="form-control" id="job_id" placeholder="0">
 		</div>
 	</div>
-	
+
 	<div class="col-12">
 		<button id="open_job" type="button" class="btn btn-primary">Open</button>
 	</div>
@@ -30,9 +30,14 @@
 			<div class="input-group-text">days</div>
 		</div>
 	</div>
-	
+
 	<div class="col-12">
 		<button id="show_days" type="button" class="btn btn-primary">Show</button>
+	</div>
+
+	<div class="col-12 ms-auto">
+		<span id="selected_count" class="text-muted me-2"></span>
+		<button id="combine_selected" type="button" class="btn btn-primary">Combined (selected jobs)</button>
 	</div>
 </form>
 
@@ -51,6 +56,7 @@
 			<th scope="col">End Time</th>
 			<th scope="col">State</th>
 			<th scope="col">Limit</th>
+			<th scope="col"></th>
 		</tr>
 	</thead>
 </table>
@@ -175,11 +181,29 @@
                         return useLongTextTooltip(data, type);
                     }
                 },
+                {
+                    title: "",
+                    data: "tower_job_id",
+                    orderable: false,
+                    searchable: false,
+                    render: function (data, type, row, meta) {
+                        return '<input type="checkbox" class="job-check" value="' + data + '">';
+                    }
+                },
             ],
             dom: 'QBfrtip', // Add Q - Query Builder, B - Buttons
             buttons: ['copy', 'excel', 'pdf', 'colvis', filterSharingButton()],
-            order: [[8, "desc"]],
-            pageLength: 100
+            order: [[9, "desc"]],
+            pageLength: 100,
+            // DataTables rebuilds <thead> and overwrites any manually placed
+            // <input> in the header cells, so the select-all checkbox must be
+            // inserted via headerCallback after the header is built.
+            headerCallback: function (thead, data, start, end, display) {
+                let th = $(thead).find('th').eq(12);
+                if (th.find('#select_all').length === 0) {
+                    th.html('<input type="checkbox" id="select_all">');
+                }
+            }
         });
 
 		globalThis.refresher.setUpdaterDataTablesXhr(jobs_table);
@@ -205,6 +229,35 @@
             }
         });
 
+        // Update the "Selected" counter and sync the select-all checkbox
+        function updateSelectedCount() {
+            let totalSelected = $('#jobs tbody input.job-check:checked').length;
+            let totalVisible = $('#jobs tbody input.job-check:visible').length;
+            $("#selected_count").text(totalSelected === 0 ? "" : totalSelected + " selected");
+            $("#select_all").prop('checked', totalVisible > 0 && totalSelected === totalVisible)
+                            .prop('indeterminate', totalSelected > 0 && totalSelected < totalVisible);
+        }
+
+        // Select-all only marks rows matching the active search/filter
+        $("#select_all").on('change', function () {
+            let checked = $(this).prop('checked');
+            jobs_table.rows({ search: 'applied' }).every(function () {
+                $(this.node()).find('input.job-check').prop('checked', checked);
+            });
+            updateSelectedCount();
+        });
+
+        // Sync counter + select-all state when individual checkboxes change
+        $('#jobs tbody').on('change', 'input.job-check', function () {
+            updateSelectedCount();
+        });
+
+        // After a reload (search/filter change) the select-all state and counter are reset
+        jobs_table.on('draw', function () {
+            $("#select_all").prop('checked', false).prop('indeterminate', false);
+            updateSelectedCount();
+        });
+
         // Days handler
         $("#show_days").click(function() {
             jobs_table.ajax.reload(null, false);
@@ -216,6 +269,23 @@
                 jobs_table.ajax.reload(null, false);
                 return false;
             }
+        });
+
+        // Combined-selected-jobs handler
+        $("#combine_selected").click(function() {
+            let selected = [];
+            $('#jobs tbody input.job-check:checked').each(function () {
+                selected.push($(this).val());
+            });
+            if (selected.length === 0) {
+                alert("Please select at least one job.");
+                return;
+            }
+            if (selected.length > {{ MAX_COMBINED_JOBS }}) {
+                alert("Maximum of {{ MAX_COMBINED_JOBS }} jobs possible, selected: " + selected.length + ".");
+                return;
+            }
+            globalThis.location.href = "/jobs/combined?ids=" + selected.join(",");
         });
 	});
 </script>

@@ -1,0 +1,73 @@
+{% extends "basic.html" %}
+
+{% block title %}Jobs Combined{% endblock %}
+
+{% block content %}
+<h1>Jobs Combined</h1>
+<p>
+	Combined jobs:
+	{% for j in jobs_by_id %}
+		<a href="{{ url_for('frontend.job_hosts_overview', tower_job_id=j['tower_job_id']) }}">{{ j['tower_job_id'] }}</a> <span id="job_state_{{ j['tower_job_id'] }}"></span>{{ ", " if not loop.last }}
+	{% endfor %}
+</p>
+
+<ul class="nav nav-tabs mb-2">
+	<li class="nav-item">
+		<a class="nav-link {% if request.endpoint == 'frontend.job_combined_overview' %}active{% endif %}"
+			href="{{ url_for('frontend.job_combined_overview', ids=job_ids | join(',')) }}">Overview</a>
+	</li>
+	<li class="nav-item">
+		<a class="nav-link {% if request.endpoint == 'frontend.job_combined_recap' %}active{% endif %}"
+			href="{{ url_for('frontend.job_combined_recap', ids=job_ids | join(',')) }}">Recap</a>
+	</li>
+	<li class="nav-item">
+		<a class="nav-link {% if request.endpoint == 'frontend.job_combined_callbacks' %}active{% endif %}"
+			href="{{ url_for('frontend.job_combined_callbacks', ids=job_ids | join(',')) }}">Callbacks</a>
+	</li>
+</ul>
+
+<div class="container-fluid">
+	{% block combined_main %}{% endblock %}
+</div>
+
+{% endblock content %}
+
+{% block scripts %}
+<script type="text/javascript" src="{{ url_for('static', filename='status-element.js') }}"></script>
+<script nonce="{{crp_nonce}}">
+	$(document).ready(() => {
+		// Set the initial state badge for every job.
+		let initialStates = { {% for j in jobs_by_id %}{{ j['tower_job_id'] }}: "{{ j['state'] | default('unknown') }}"{% if not loop.last %}, {% endif %}{% endfor %} };
+		for (let id in initialStates) {
+			writeCombinedJobStatus(id, initialStates[id]);
+		}
+
+		globalThis.refresher.setUpdater(refresher => {
+			let jobIds = {{ job_ids | tojson }};
+			let pending = jobIds.length;
+			let anyStarted = false;
+			for (const id of jobIds) {
+				$.get("/data/jobs/" + id + "/state", "json").done(function (data) {
+					let state = data.state.state;
+					writeCombinedJobStatus(id, state);
+					if (state === "started") {
+						anyStarted = true;
+					}
+					// Wait for every state response before deciding whether to stop
+					// refreshing, since the responses arrive asynchronously.
+					if (--pending === 0 && !anyStarted) {
+						refresher.setEnabled(false);
+					}
+				});
+			}
+		});
+	});
+
+	function writeCombinedJobStatus(jobId, state) {
+		let box = document.getElementById("job_state_" + jobId);
+		if (!box) return;
+		box.innerHTML = "";
+		box.appendChild(getStatusElement(state));
+	}
+</script>
+{% endblock scripts %}

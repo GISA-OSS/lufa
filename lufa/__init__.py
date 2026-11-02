@@ -131,7 +131,10 @@ def create_app(test_config=None):
     @app.context_processor
     def inject_constants():
         """Inject constants"""
-        return {"RELOAD_INTERVAL": app.config.get("RELOAD_INTERVAL", 5000)}
+        return {
+            "RELOAD_INTERVAL": app.config.get("RELOAD_INTERVAL", 5000),
+            "MAX_COMBINED_JOBS": app.config.get("MAX_COMBINED_JOBS", 20),
+        }
 
     @login_manager.user_loader
     def load_user(

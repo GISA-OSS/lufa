@@ -58,3 +58,8 @@
 ### Metrics (optional)
 # Enable Prometheus metrics endpoint at /metrics
 #ENABLE_METRICS_ENDPOINT=True
+
+### Combined jobs view (optional)
+# Maximum number of jobs that can be selected for the combined view.
+# Defaults to 20 if not set.
+#MAX_COMBINED_JOBS=20

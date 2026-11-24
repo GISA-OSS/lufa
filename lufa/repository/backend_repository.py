@@ -17,6 +17,12 @@ class JobTaskCallbacks(TypedDict):
     state: JobState
     task_name: str
     timestamp: TimeStamp
+    tower_job_id: int
+
+
+class TaskStateCount(TypedDict):
+    state: JobState
+    count: int
 
 
 class JobCallbackData(TypedDict):
@@ -138,6 +144,12 @@ class TemplateJobData(TypedDict):
 
 
 class ResourceNotFoundError(Exception):
+    def __init__(self, msg: str):
+        super().__init__(msg)
+        self.msg = msg
+
+
+class BadRequestError(Exception):
     def __init__(self, msg: str):
         super().__init__(msg)
         self.msg = msg
@@ -274,10 +286,44 @@ class BackendRepository(ABC):
         """Get the stats for the welcome page."""
         pass
 
+    @abstractmethod
+    def get_jobs_by_ids(self, job_ids: list[int]) -> list[JobStatus]:
+        """Get job status rows for multiple job ids (merged table header data)."""
+        pass
+
+    @abstractmethod
+    def get_job_stats_by_ids(self, job_ids: list[int]) -> list[JobStats]:
+        """Get stats rows for multiple job ids (recap table)."""
+        pass
+
+    @abstractmethod
+    def get_last_host_callback_by_ids(self, job_ids: list[int]) -> list[HostCallback]:
+        """Get the last callback per host for each given job id (overview table)."""
+        pass
+
+    @abstractmethod
+    def get_last_host_callback_count_by_ids(self, job_ids: list[int]) -> dict[int, dict[str, int]]:
+        """Get host state counts per job id, keyed by job id (overview header row)."""
+        pass
+
+    @abstractmethod
+    def get_job_task_callbacks_by_ids(self, job_ids: list[int]) -> list[JobTaskCallbacks]:
+        """Get all task callbacks for multiple job ids (callbacks table)."""
+        pass
+
+    @abstractmethod
+    def get_job_task_callback_count_by_ids(self, job_ids: list[int]) -> list[TaskStateCount]:
+        """Get task callback state counts summed over multiple job ids (callbacks header row)."""
+        pass
+
 
 class SqliteBackendRepository(BackendRepository):
     def __init__(self, db_manager: DatabaseManager):
         self.db_manager = db_manager
+
+    def _placeholders(self, count: int) -> str:
+        """Return a comma-separated list of sqlite '?' placeholders for an IN clause."""
+        return ", ".join("?" for _ in range(count))
 
     def get_job_template_name_by_job_id(self, tower_job_id: int) -> str:
         # Get Template Name and Check if Job exists
@@ -919,6 +965,142 @@ class SqliteBackendRepository(BackendRepository):
                 """)
         return cursor.fetchone()
 
+    def get_jobs_by_ids(self, job_ids: list[int]) -> list[JobStatus]:
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        placeholders = self._placeholders(len(job_ids))
+        cursor.execute(
+            f"""
+                        SELECT
+                            v_job_status.*,
+                            job_templates.*,
+                            strftime('%%Y-%%m-%%dT%%H:%%M:%%f', end_time)   as end_time,
+                            strftime('%%Y-%%m-%%dT%%H:%%M:%%f', start_time) as start_time
+                        FROM v_job_status
+                        JOIN job_templates
+                          ON v_job_status.tower_job_template_id = job_templates.tower_job_template_id
+                        WHERE v_job_status.tower_job_id IN ({placeholders})
+                        ORDER BY v_job_status.start_time DESC
+                        """,
+            job_ids,
+        )
+        ret = []
+        for line in cursor.fetchall():
+            line["awx_tags"] = line["awx_tags"].split(",")
+            line["template_infos"] = line["template_infos"] = (
+                json.loads(line["template_infos"]) if line["template_infos"] else None
+            )
+            ret.append(line)
+        return ret
+
+    def get_job_stats_by_ids(self, job_ids: list[int]) -> list[JobStats]:
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        placeholders = self._placeholders(len(job_ids))
+        cursor.execute(
+            f"""
+                        SELECT *
+                        FROM stats
+                        WHERE tower_job_id IN ({placeholders})
+                        ORDER BY tower_job_id
+                        """,
+            job_ids,
+        )
+        return cursor.fetchall()
+
+    def get_last_host_callback_by_ids(self, job_ids: list[int]) -> list[HostCallback]:
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        placeholders = self._placeholders(len(job_ids))
+        cursor.execute(
+            f"""
+                        SELECT
+                            tc1.id,
+                            tasks.tower_job_id,
+                            task_name,
+                            ansible_host,
+                            state,
+                            strftime('%%Y-%%m-%%dT%%H:%%M:%%f', tc2.timestamp) as timestamp
+                        FROM (SELECT max(id) as id
+                                    FROM task_callbacks
+                                    JOIN tasks
+                                      ON tasks.ansible_uuid = task_callbacks.task_ansible_uuid
+                                    WHERE tasks.tower_job_id IN ({placeholders})
+                                    GROUP BY ansible_host, tasks.tower_job_id
+                                ) as tc1
+                        JOIN task_callbacks as tc2
+                          ON tc1.id = tc2.id
+                        JOIN tasks
+                          ON tasks.ansible_uuid = tc2.task_ansible_uuid
+                        ORDER BY tasks.tower_job_id, ansible_host
+                        """,
+            job_ids,
+        )
+        return cursor.fetchall()
+
+    def get_last_host_callback_count_by_ids(self, job_ids: list[int]) -> dict[int, dict[str, int]]:
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        placeholders = self._placeholders(len(job_ids))
+        cursor.execute(
+            f"""
+                        SELECT tasks.tower_job_id, state, count(state) as "count"
+                        FROM (SELECT max(id) as id
+                                    FROM task_callbacks
+                                    JOIN tasks
+                                      ON tasks.ansible_uuid = task_callbacks.task_ansible_uuid
+                                    WHERE tasks.tower_job_id IN ({placeholders})
+                                    GROUP BY ansible_host, tasks.tower_job_id
+                                ) as tc1
+                        JOIN task_callbacks as tc2
+                          ON tc1.id = tc2.id
+                        JOIN tasks
+                          ON tasks.ansible_uuid = tc2.task_ansible_uuid
+                        GROUP BY tasks.tower_job_id, state
+                        """,
+            job_ids,
+        )
+        result: dict[int, dict[str, int]] = {}
+        for row in cursor.fetchall():
+            result.setdefault(row["tower_job_id"], {})[row["state"]] = row["count"]
+        return result
+
+    def get_job_task_callbacks_by_ids(self, job_ids: list[int]) -> list[JobTaskCallbacks]:
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        placeholders = self._placeholders(len(job_ids))
+        cursor.execute(
+            f"""
+                        SELECT
+                            id, tasks.tower_job_id, task_name, ansible_host, state,
+                            strftime('%%Y-%%m-%%dT%%H:%%M:%%f', timestamp) as timestamp
+                        FROM task_callbacks
+                        JOIN tasks
+                          ON tasks.ansible_uuid = task_callbacks.task_ansible_uuid
+                        WHERE tasks.tower_job_id IN ({placeholders})
+                        ORDER BY tasks.tower_job_id, timestamp DESC
+                        """,
+            job_ids,
+        )
+        return cursor.fetchall()
+
+    def get_job_task_callback_count_by_ids(self, job_ids: list[int]) -> list[TaskStateCount]:
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        placeholders = self._placeholders(len(job_ids))
+        cursor.execute(
+            f"""
+                        SELECT state, count(state) as "count"
+                        FROM task_callbacks
+                        JOIN tasks
+                          ON tasks.ansible_uuid = task_callbacks.task_ansible_uuid
+                        WHERE tasks.tower_job_id IN ({placeholders})
+                        GROUP BY state;
+                        """,
+            job_ids,
+        )
+        return cursor.fetchall()
+
 
 class PostgresBackendRepository(BackendRepository):
     def __init__(self, db_manager: DatabaseManager):
@@ -1519,3 +1701,131 @@ class PostgresBackendRepository(BackendRepository):
                     FROM v_host_compliance;
                 """)
         return cursor.fetchone()
+
+    def get_jobs_by_ids(self, job_ids: list[int]) -> list[JobStatus]:
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+                        SELECT
+                            v_job_status.*,
+                            job_templates.*
+                        FROM v_job_status
+                        JOIN job_templates
+                          ON v_job_status.tower_job_template_id = job_templates.tower_job_template_id
+                        WHERE v_job_status.tower_job_id = ANY(%s)
+                        ORDER BY v_job_status.start_time DESC
+                        """,
+            (job_ids,),
+        )
+        ret = []
+        for line in cursor.fetchall():
+            # in postgres awx_tags is returned as a jsonb array already
+            if isinstance(line["awx_tags"], str):
+                line["awx_tags"] = line["awx_tags"].split(",")
+            line["template_infos"] = line["template_infos"]
+            ret.append(line)
+        return ret
+
+    def get_job_stats_by_ids(self, job_ids: list[int]) -> list[JobStats]:
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+                        SELECT *
+                        FROM stats
+                        WHERE tower_job_id = ANY(%s)
+                        ORDER BY tower_job_id
+                        """,
+            (job_ids,),
+        )
+        return cursor.fetchall()
+
+    def get_last_host_callback_by_ids(self, job_ids: list[int]) -> list[HostCallback]:
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+                        SELECT
+                            tc1.id,
+                            tasks.tower_job_id,
+                            task_name,
+                            ansible_host,
+                            state,
+                            to_char(tc2.timestamp, 'YYYY-MM-DD"T"HH24:MI:SS.MS') as timestamp
+                        FROM (SELECT max(id) as id
+                                    FROM task_callbacks
+                                    JOIN tasks
+                                      ON tasks.ansible_uuid = task_callbacks.task_ansible_uuid
+                                    WHERE tasks.tower_job_id = ANY(%s)
+                                    GROUP BY ansible_host, tasks.tower_job_id
+                                ) as tc1
+                        JOIN task_callbacks as tc2
+                          ON tc1.id = tc2.id
+                        JOIN tasks
+                          ON tasks.ansible_uuid = tc2.task_ansible_uuid
+                        ORDER BY tasks.tower_job_id, ansible_host
+                        """,
+            (job_ids,),
+        )
+        return cursor.fetchall()
+
+    def get_last_host_callback_count_by_ids(self, job_ids: list[int]) -> dict[int, dict[str, int]]:
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+                        SELECT tasks.tower_job_id, state, count(state) as count
+                        FROM (SELECT max(id) as id
+                                    FROM task_callbacks
+                                    JOIN tasks
+                                      ON tasks.ansible_uuid = task_callbacks.task_ansible_uuid
+                                    WHERE tasks.tower_job_id = ANY(%s)
+                                    GROUP BY ansible_host, tasks.tower_job_id
+                                ) as tc1
+                        JOIN task_callbacks as tc2
+                          ON tc1.id = tc2.id
+                        JOIN tasks
+                          ON tasks.ansible_uuid = tc2.task_ansible_uuid
+                        GROUP BY tasks.tower_job_id, state
+                        """,
+            (job_ids,),
+        )
+        result: dict[int, dict[str, int]] = {}
+        for row in cursor.fetchall():
+            result.setdefault(row["tower_job_id"], {})[row["state"]] = row["count"]
+        return result
+
+    def get_job_task_callbacks_by_ids(self, job_ids: list[int]) -> list[JobTaskCallbacks]:
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+                        SELECT
+                            id, tasks.tower_job_id, task_name, ansible_host, state,
+                            to_char(timestamp, 'YYYY-MM-DD"T"HH24:MI:SS.MS') as timestamp
+                        FROM task_callbacks
+                        JOIN tasks
+                          ON tasks.ansible_uuid = task_callbacks.task_ansible_uuid
+                        WHERE tasks.tower_job_id = ANY(%s)
+                        ORDER BY tasks.tower_job_id, timestamp DESC
+                        """,
+            (job_ids,),
+        )
+        return cursor.fetchall()
+
+    def get_job_task_callback_count_by_ids(self, job_ids: list[int]) -> list[TaskStateCount]:
+        conn = self.db_manager.get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+                        SELECT state, count(state) as "count"
+                        FROM task_callbacks
+                        JOIN tasks
+                          ON tasks.ansible_uuid = task_callbacks.task_ansible_uuid
+                        WHERE tasks.tower_job_id = ANY(%s)
+                        GROUP BY state;
+                        """,
+            (job_ids,),
+        )
+        return cursor.fetchall()

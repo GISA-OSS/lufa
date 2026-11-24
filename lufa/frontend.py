@@ -22,13 +22,10 @@ def _parse_job_ids() -> list[int]:
     raw = request.args.get("ids", "")
     job_ids: list[int] = []
     for part in raw.split(","):
-        part = part.strip()
-        if not part:
-            continue
         try:
             job_ids.append(int(part))
         except ValueError:
-            continue
+            raise BadRequestError(f"Invalid job id: {part}")
     if len(job_ids) > max_combined_jobs:
         raise BadRequestError(f"Too many jobs selected (max {max_combined_jobs})")
     if not job_ids:
